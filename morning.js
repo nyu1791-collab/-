@@ -189,6 +189,10 @@
   const ratePerMinEl = document.getElementById("ratePerMin");
   const capEl = document.getElementById("cap");
   const payUrlEl = document.getElementById("payUrl");
+  const soundToggleEl = document.getElementById("soundToggle");
+  const installBtnEl = document.getElementById("installBtn");
+  const shareBtnEl = document.getElementById("shareBtn");
+  const hasFun = typeof window.Fun !== "undefined";
 
   // ---- 寝ぼけ防止チャレンジ -------------------------------------------------
 
@@ -229,15 +233,37 @@
     const k = dateKey(now);
     const deadline = deadlineOf(k, state.config.target);
     const late = lateMinutesAt(now, deadline);
+    const beforeLevel = hasFun ? Fun.level().level : 0;
+    const amount = penaltyFor(late);
     state.days[k] = {
       status: "done",
       at: now.toISOString(),
       lateMin: late,
-      amount: penaltyFor(late),
+      amount,
     };
     challenge = null;
     save(state);
     render();
+    celebrateWake(amount, late, beforeLevel);
+  }
+
+  function celebrateWake(amount, late, beforeLevel) {
+    if (!hasFun) return;
+    if (amount === 0) {
+      Fun.Sound.success();
+      Fun.confetti({ count: 160, colors: ["#f59e0b", "#fde047", "#22c55e", "#6366f1"] });
+      Fun.toast("時間内に起床！ ペナルティ ¥0 🌞", { icon: "🌞" });
+    } else {
+      Fun.Sound.coin();
+      Fun.confetti({ count: 40 });
+      Fun.toast(`起床確認！ ${late}分遅刻で確定`, { icon: "🛏️" });
+    }
+    const after = Fun.level();
+    if (after.level > beforeLevel) {
+      Fun.Sound.levelUp();
+      Fun.confetti({ count: 160 });
+      Fun.toast(`レベルアップ！ Lv.${after.level}「${after.title}」`, { icon: "⭐" });
+    }
   }
 
   // ---- 描画 -----------------------------------------------------------------
@@ -462,6 +488,48 @@
       applyTheme("dark");
     else applyTheme("light");
   })();
+
+  // ---- 楽しさ・PWA連携 ------------------------------------------------------
+
+  if (hasFun) {
+    Fun.registerSW();
+    Fun.registerInstallButton(installBtnEl);
+
+    if (soundToggleEl) {
+      soundToggleEl.textContent = Fun.Sound.on ? "🔊" : "🔇";
+      soundToggleEl.addEventListener("click", () => {
+        soundToggleEl.textContent = Fun.Sound.toggle() ? "🔊" : "🔇";
+      });
+    }
+
+    if (shareBtnEl) {
+      shareBtnEl.addEventListener("click", () => {
+        const info = todayInfo();
+        const lv = Fun.level();
+        let emoji, title, lines;
+        if (info.kind === "done" && info.amount === 0) {
+          emoji = "🌞";
+          title = "時間内に起床！";
+          lines = [`目標 ${state.config.target} を達成`, `Lv.${lv.level}「${lv.title}」`];
+        } else if (info.kind === "done") {
+          emoji = "🛏️";
+          title = `${info.late}分遅刻で確定`;
+          lines = [`ペナルティ ${yen(info.amount)}`, `Lv.${lv.level}「${lv.title}」`];
+        } else {
+          emoji = "⏰";
+          title = "朝チャレンジ挑戦中";
+          lines = [`目標 ${state.config.target}`, `Lv.${lv.level}「${lv.title}」`];
+        }
+        Fun.share({
+          emoji,
+          title,
+          lines,
+          accent: "#f59e0b",
+          text: `「つづける」の朝チャレンジに挑戦中！ 目標${state.config.target}起床`,
+        });
+      });
+    }
+  }
 
   // ---- 起動 -----------------------------------------------------------------
 

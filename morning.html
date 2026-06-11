@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#6366f1" />
   <title>朝チャレンジ — つづける</title>
+  <meta name="description" content="寝坊すると遅刻1分ごとに課金。お金の力で早起きを習慣化する朝チャレンジ。" />
+  <meta property="og:title" content="朝チャレンジ — つづける" />
+  <meta property="og:description" content="目標時刻を過ぎると1分ごとにペナルティが加算。お金の力で早起きを習慣化。" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="つづける" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -15,6 +24,8 @@
         <p class="header__date" id="todayLabel"></p>
       </div>
       <div class="header__actions">
+        <button class="btn btn--icon" id="installBtn" title="ホーム画面に追加" aria-label="ホーム画面に追加" hidden>📲</button>
+        <button class="btn btn--icon" id="soundToggle" title="効果音" aria-label="効果音">🔊</button>
         <a class="btn btn--icon" href="index.html" title="習慣一覧へ" aria-label="習慣一覧へ">📋</a>
         <button class="btn btn--icon" id="themeToggle" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
       </div>
@@ -62,11 +73,16 @@
       <ul class="log" id="logList"></ul>
     </section>
 
+    <div class="cta">
+      <button class="btn btn--ghost" id="shareBtn">📣 今朝の結果をシェア</button>
+    </div>
+
     <footer class="footer">
       <p>データはこのブラウザ内にのみ保存されます。実際の引き落としは行われません。</p>
     </footer>
   </div>
 
+  <script src="fun.js"></script>
   <script src="morning.js"></script>
 </body>
 </html>

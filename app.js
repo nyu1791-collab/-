@@ -80,6 +80,13 @@
   const inputEl = document.getElementById("habitInput");
   const todayLabelEl = document.getElementById("todayLabel");
   const themeToggleEl = document.getElementById("themeToggle");
+  const levelbarEl = document.getElementById("levelbar");
+  const soundToggleEl = document.getElementById("soundToggle");
+  const installBtnEl = document.getElementById("installBtn");
+  const shareBtnEl = document.getElementById("shareBtn");
+
+  const MILESTONES = [3, 7, 14, 30, 50, 100, 200, 365];
+  const hasFun = typeof window.Fun !== "undefined";
 
   // ---- 描画 -----------------------------------------------------------------
 
@@ -126,8 +133,21 @@
       .join("");
   }
 
+  function renderLevel() {
+    if (!hasFun || !levelbarEl) return;
+    const lv = Fun.level();
+    levelbarEl.innerHTML = `
+      <div class="levelbar__row">
+        <span class="levelbar__badge">Lv.${lv.level}</span>
+        <span class="levelbar__title">${lv.title}</span>
+        <span class="levelbar__xp">${lv.into} / ${lv.per} XP</span>
+      </div>
+      <div class="levelbar__track"><div class="levelbar__fill" style="width:${Math.round(lv.ratio * 100)}%"></div></div>`;
+  }
+
   function render() {
     renderTodayLabel();
+    renderLevel();
     renderSummary();
 
     listEl.innerHTML = "";
@@ -178,14 +198,48 @@
     render();
   }
 
-  function toggleToday(id) {
+  function toggleToday(id, originEl) {
     const habit = habits.find((h) => h.id === id);
     if (!habit) return;
     const k = dateKey(new Date());
-    if (habit.log[k]) delete habit.log[k];
+    const wasDone = !!habit.log[k];
+    const beforeLevel = hasFun ? Fun.level().level : 0;
+
+    if (wasDone) delete habit.log[k];
     else habit.log[k] = true;
     save(habits);
     render();
+
+    if (!wasDone) celebrateCheck(habit, originEl, beforeLevel);
+  }
+
+  function celebrateCheck(habit, originEl, beforeLevel) {
+    if (!hasFun) return;
+    const streak = currentStreak(habit);
+
+    // チェック地点から小さく紙吹雪＋コイン音
+    let origin;
+    if (originEl) {
+      const r = originEl.getBoundingClientRect();
+      origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    Fun.Sound.coin();
+    Fun.confetti({ count: 40, origin });
+
+    // 連続記録の節目で大きく祝う
+    if (MILESTONES.includes(streak)) {
+      Fun.Sound.success();
+      Fun.confetti({ count: 160 });
+      Fun.toast(`${streak}日連続！その調子！`, { icon: "🔥" });
+    }
+
+    // レベルアップ
+    const afterLevel = Fun.level();
+    if (afterLevel.level > beforeLevel) {
+      Fun.Sound.levelUp();
+      Fun.confetti({ count: 160 });
+      Fun.toast(`レベルアップ！ Lv.${afterLevel.level}「${afterLevel.title}」`, { icon: "⭐" });
+    }
   }
 
   function deleteHabit(id) {
@@ -210,7 +264,7 @@
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const { action, id } = btn.dataset;
-    if (action === "toggle") toggleToday(id);
+    if (action === "toggle") toggleToday(id, btn);
     else if (action === "delete") deleteHabit(id);
   });
 
@@ -234,6 +288,38 @@
       applyTheme("dark");
     else applyTheme("light");
   })();
+
+  // ---- 楽しさ・PWA連携 ------------------------------------------------------
+
+  if (hasFun) {
+    Fun.registerSW();
+    Fun.registerInstallButton(installBtnEl);
+
+    if (soundToggleEl) {
+      soundToggleEl.textContent = Fun.Sound.on ? "🔊" : "🔇";
+      soundToggleEl.addEventListener("click", () => {
+        soundToggleEl.textContent = Fun.Sound.toggle() ? "🔊" : "🔇";
+      });
+    }
+
+    if (shareBtnEl) {
+      shareBtnEl.addEventListener("click", () => {
+        const lv = Fun.level();
+        const todayK = dateKey(new Date());
+        const doneToday = habits.filter((h) => h.log[todayK]).length;
+        const best = habits.reduce((m, h) => Math.max(m, currentStreak(h)), 0);
+        Fun.share({
+          emoji: "🔥",
+          title: `${best}日連続つづけ中`,
+          lines: [
+            `Lv.${lv.level}「${lv.title}」`,
+            `習慣 ${habits.length}件 ／ 今日 ${doneToday}件達成`,
+          ],
+          text: `「つづける」で習慣化チャレンジ中！ 最長${best}日連続・Lv.${lv.level}`,
+        });
+      });
+    }
+  }
 
   // 別タブでの更新に追従
   window.addEventListener("storage", (e) => {
