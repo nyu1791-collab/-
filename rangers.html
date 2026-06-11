@@ -271,6 +271,142 @@
     .back-link { margin-top: auto; padding-top: 18px; }
     .back-link a { color: var(--muted); font-size: 12px; }
 
+    /* ===== タイトルのボタン色 ===== */
+    .big-btn.arena {
+      color: #fff; background: linear-gradient(180deg, #7a5cff, #5a3fd6);
+      border-color: #b3a4ff; box-shadow: 0 4px 0 #3a268f;
+    }
+    .big-btn.gacha {
+      color: #4a2200; background: linear-gradient(180deg, #ff9d5c, #ff6f3c);
+      border-color: #ffd0b0; box-shadow: 0 4px 0 #b34418;
+    }
+    .title-row { display: flex; gap: 8px; width: min(320px, 86vw); }
+    .big-btn.half { width: auto; flex: 1; margin: 8px 0; }
+    .big-btn .sub { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; margin-top: 2px; }
+
+    /* ===== ガチャ ===== */
+    #gacha-featured { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: min(440px, 94vw); margin-bottom: 14px; }
+    .feat-chip {
+      display: flex; flex-direction: column; align-items: center; width: 76px;
+      background: #1c1238; border: 2px solid var(--accent); border-radius: 12px; padding: 4px;
+    }
+    .feat-chip canvas { width: 42px; height: 42px; }
+    .feat-chip span { font-size: 10px; font-weight: 800; }
+    .feat-chip small { font-size: 8px; color: var(--muted); line-height: 1.1; text-align: center; }
+
+    #gacha-result {
+      position: absolute; inset: 0; z-index: 30; display: none;
+      background: rgba(13, 7, 30, 0.82); backdrop-filter: blur(3px);
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    #gacha-result.visible { display: flex; }
+    .gr-box {
+      width: min(440px, 94vw); max-height: 90%; overflow-y: auto;
+      background: radial-gradient(120% 90% at 50% 0%, #43307f, #241749);
+      border: 3px solid var(--accent); border-radius: 18px; padding: 16px; text-align: center;
+    }
+    .gr-box h3 { font-size: 20px; margin-bottom: 12px; }
+    #gacha-result-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+    @media (max-width: 380px) { #gacha-result-grid { grid-template-columns: repeat(4, 1fr); } }
+    .pull-cell {
+      position: relative; border-radius: 10px; padding: 4px 2px;
+      background: #1c1238; border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center; animation: pop 0.3s ease;
+    }
+    @keyframes pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .pull-cell.rar2 { border-color: var(--accent-2); }
+    .pull-cell.rar3 { border-color: var(--accent); box-shadow: 0 0 12px rgba(255, 213, 74, 0.7); }
+    .pull-cell canvas { width: 40px; height: 40px; }
+    .pull-name { font-size: 10px; font-weight: 800; line-height: 1; }
+    .pull-stars { font-size: 11px; }
+    .pull-tag { font-size: 9px; color: #ffd54a; font-weight: 800; }
+    .pull-skill { position: absolute; top: 2px; right: 3px; font-size: 13px; }
+
+    /* ===== デッキ帯 / コレクション ===== */
+    .deck-strip {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
+      width: min(440px, 94vw); margin-bottom: 8px;
+    }
+    .deck-strip.small { gap: 5px; }
+    .deck-slot {
+      aspect-ratio: 1; border-radius: 12px; position: relative;
+      background: linear-gradient(180deg, #46357c, #332459); border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .deck-slot.empty { background: #1c1238; border-style: dashed; }
+    .deck-slot canvas { width: 76%; height: 64%; }
+    .deck-slot span { font-size: 9px; font-weight: 800; line-height: 1; }
+    .deck-slot .plus { font-size: 20px; color: var(--muted); }
+    .deck-slot:not(.empty):active { transform: scale(0.92); }
+
+    #collection-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      width: min(460px, 96vw); margin-bottom: 14px;
+    }
+    @media (max-width: 380px) { #collection-grid { grid-template-columns: repeat(3, 1fr); } }
+    .hero-cell {
+      position: relative; border-radius: 12px; padding: 4px 2px 3px;
+      background: #1c1238; border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    .hero-cell.rar2 { border-color: var(--accent-2); }
+    .hero-cell.rar3 { border-color: var(--accent); }
+    .hero-cell.locked { filter: grayscale(0.9) brightness(0.6); }
+    .hero-cell.indeck { box-shadow: 0 0 0 2px var(--accent) inset; }
+    .hero-cell canvas { width: 44px; height: 44px; }
+    .hero-cell .hc-star { font-size: 10px; height: 12px; }
+    .hero-cell .hc-name { font-size: 10px; font-weight: 800; line-height: 1; }
+    .hero-cell .hc-meta { font-size: 9px; color: #cdeaff; }
+    .hero-cell .hc-skill { position: absolute; top: 2px; right: 3px; font-size: 13px; }
+    .hero-cell .hc-in {
+      position: absolute; top: 2px; left: 3px; font-size: 11px; font-weight: 900; color: #160e2e;
+      background: var(--accent); border-radius: 50%; width: 16px; height: 16px; line-height: 16px;
+    }
+    .hero-cell:active:not(.locked) { transform: scale(0.93); }
+
+    /* ===== アリーナ ロビー ===== */
+    .arena-rankbox {
+      display: flex; gap: 10px; width: min(440px, 94vw); margin-bottom: 12px;
+    }
+    .arena-rankbox > div {
+      flex: 1; background: #1c1238; border: 2px solid var(--panel-3); border-radius: 14px;
+      padding: 8px; text-align: center;
+    }
+    .arena-rankbox .lbl { display: block; font-size: 10px; color: var(--muted); }
+    .arena-rankbox .val { display: block; font-size: 16px; font-weight: 900; color: var(--accent); }
+    .arena-card {
+      width: min(440px, 94vw); background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 14px; padding: 10px 12px; margin: 6px 0 4px;
+    }
+    .arena-card .ac-title { font-size: 13px; font-weight: 800; margin-bottom: 8px; }
+    .ac-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .ac-label input { flex: 1; }
+    .code-box {
+      width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px;
+      background: #100a26; border: 2px solid var(--panel-3); color: var(--text);
+      font-size: 12px; font-family: monospace; margin-bottom: 8px;
+    }
+    .ac-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mini-btn {
+      flex: 1; min-width: 90px; padding: 9px 6px; border-radius: 10px;
+      background: linear-gradient(180deg, #5e48a8, #43307f); border: 2px solid #8a73d4;
+      color: var(--text); font-size: 12px; font-weight: 800;
+    }
+    .mini-btn.wide { width: 100%; flex: none; }
+    .mini-btn.primary { background: linear-gradient(180deg, #ffe082, #ffc233); color: #3c2800; border-color: #fff3c2; }
+    .mini-btn:active { transform: scale(0.96); }
+    input { font-family: inherit; }
+
+    /* ===== トースト ===== */
+    #toast {
+      position: absolute; left: 50%; bottom: 22%; transform: translate(-50%, 12px);
+      background: rgba(13, 7, 30, 0.92); color: #fff; border: 2px solid var(--accent);
+      padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 800;
+      z-index: 40; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+      max-width: 80vw; text-align: center;
+    }
+    #toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
     @media (max-height: 480px) {
       :root { --hud-h: 96px; }
       .unit-card canvas { width: 32px; height: 32px; }
@@ -294,10 +430,17 @@
         <h1>ゆるレンジャー</h1>
         <p class="subtitle">ゆるかわ部隊を召喚して、敵のとりでを撃破せよ！</p>
         <canvas id="title-canvas" width="680" height="340"></canvas>
-        <button class="big-btn" id="start-btn">ぼうけんに出発！</button>
-        <button class="big-btn secondary" id="title-upgrade-btn">部隊の強化</button>
-        <button class="big-btn secondary" id="achv-btn">🏅 実績ずかん</button>
-        <button class="big-btn secondary" id="sound-btn">🔊 効果音：オン</button>
+        <button class="big-btn" id="start-btn">⚔️ ぼうけん（ストーリー）</button>
+        <button class="big-btn arena" id="arena-btn">🏟️ たいせん（PvP）</button>
+        <button class="big-btn gacha" id="gacha-btn">🎰 ガチャを回す</button>
+        <div class="title-row">
+          <button class="big-btn secondary half" id="collection-btn">📦 ずかん</button>
+          <button class="big-btn secondary half" id="title-upgrade-btn">⚒️ 強化</button>
+        </div>
+        <div class="title-row">
+          <button class="big-btn secondary half" id="achv-btn">🏅 実績</button>
+          <button class="big-btn secondary half" id="sound-btn">🔊 効果音</button>
+        </div>
         <button class="big-btn secondary" id="bgm-btn">🎵 BGM：オン</button>
         <p class="back-link"><a href="index.html">← つづける（習慣化アプリ）へ戻る</a></p>
       </section>
@@ -335,6 +478,77 @@
           <div class="t-next">タップしてつぎへ ▶</div>
         </div>
       </div>
+
+      <!-- ガチャ -->
+      <section class="screen" id="gacha-screen">
+        <h2>🎰 ガチャ</h2>
+        <div class="gold-chip">🔮 <span id="gacha-gems">0</span>　🪙 <span id="gacha-gold">0</span></div>
+        <p class="subtitle" style="margin:0 0 10px">★3確定まであと <b id="gacha-pity">50</b> 回／★3はスキルを覚える！</p>
+        <div id="gacha-featured"></div>
+        <button class="big-btn gacha" id="gacha-roll10">10連ガチャ<span class="sub"></span></button>
+        <button class="big-btn" id="gacha-roll1">1回ガチャ<span class="sub"></span></button>
+        <button class="big-btn secondary" id="gacha-exchange">🪙200 → 🔮10 に交換</button>
+        <button class="big-btn secondary" id="gacha-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- コレクション / 編成 -->
+      <section class="screen" id="collection-screen">
+        <h2>📦 ヒーローずかん＆編成</h2>
+        <div class="gold-chip">🔮 <span id="collection-gems">0</span></div>
+        <p class="subtitle" style="margin:0 0 6px">デッキ（タップで外す・最大6体）</p>
+        <div id="collection-deck" class="deck-strip"></div>
+        <p class="subtitle" style="margin:10px 0 6px">もちもの（タップでデッキに入れる）</p>
+        <div id="collection-grid"></div>
+        <button class="big-btn secondary" id="collection-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- アリーナ（PvP ロビー）-->
+      <section class="screen" id="arena-screen">
+        <h2>🏟️ アリーナ</h2>
+        <div class="arena-rankbox">
+          <div><span class="lbl">ランク</span><span id="arena-rank" class="val">ビギナー 1</span></div>
+          <div><span class="lbl">せんせき</span><span id="arena-record" class="val">0勝 0敗</span></div>
+        </div>
+
+        <p class="subtitle" style="margin:4px 0 6px">あなたのデッキ（⚔ 総合力 <b id="arena-deck-power">0</b>）</p>
+        <div id="arena-deck" class="deck-strip small"></div>
+        <button class="big-btn secondary" id="collection-btn-2" onclick="document.getElementById('collection-btn').click()">編成をかえる →</button>
+
+        <button class="big-btn arena" id="arena-ranked-btn">⚔️ ランクマッチ（CPU）</button>
+
+        <div class="arena-card">
+          <p class="ac-title">🔗 自分のチームを共有して対戦</p>
+          <label class="ac-label">なまえ
+            <input id="name-input" type="text" maxlength="12" placeholder="ゆうしゃ" />
+          </label>
+          <input id="arena-mycode" class="code-box" readonly />
+          <div class="ac-row">
+            <button class="mini-btn" id="arena-copy-code">コードをコピー</button>
+            <button class="mini-btn" id="arena-copy-link">リンクをコピー</button>
+            <button class="mini-btn primary" id="arena-share">共有する</button>
+          </div>
+        </div>
+
+        <div class="arena-card">
+          <p class="ac-title">🆚 もらったコードで挑戦</p>
+          <input id="arena-code-input" class="code-box" placeholder="ともだちの対戦コードを貼り付け" />
+          <button class="mini-btn primary wide" id="arena-challenge-btn">このチームに挑戦！</button>
+        </div>
+
+        <button class="big-btn secondary" id="arena-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- ガチャ結果オーバーレイ -->
+      <div id="gacha-result">
+        <div class="gr-box">
+          <h3>✨ けっか ✨</h3>
+          <div id="gacha-result-grid"></div>
+          <button class="big-btn" id="gacha-result-close">とじる</button>
+        </div>
+      </div>
+
+      <!-- トースト -->
+      <div id="toast"></div>
 
       <!-- リザルト -->
       <section class="screen" id="result-screen">

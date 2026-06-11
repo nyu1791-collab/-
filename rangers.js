@@ -24,6 +24,27 @@ const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 const TAU = Math.PI * 2;
 
+// 再現可能な乱数（mulberry32）。対戦の公平性とテストの安定のため、
+// 戦闘の勝敗に関わる乱数はこのシード付き乱数を通す。
+function makeRng(seed) {
+  let a = (seed >>> 0) || 1;
+  const next = () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  next.range = (lo, hi) => lo + next() * (hi - lo);
+  next.pick = (arr) => arr[(next() * arr.length) | 0];
+  next.int = (n) => (next() * n) | 0;
+  return next;
+}
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
 const SAVE_KEY = "rangers-save-v1";
 
 function defaultSave() {
@@ -31,6 +52,15 @@ function defaultSave() {
     gold: 0, stars: {}, unitLv: {}, sound: true, bgm: true,
     tutorialDone: false, totalKills: 0,
     bestEndless: { time: 0, kills: 0 },
+    // --- ガチャ / コレクション / PvP ---
+    gems: 60,                 // ガチャ通貨（初回お試し分を付与）
+    heroes: {},               // { heroKey: { lb:限界突破0..4, dupes:重複数 } } 所持ヒーロー
+    deck: [],                 // 対戦デッキ（ヒーローキー、最大6）
+    arena: { rank: 1, pts: 0, wins: 0, losses: 0 },
+    pity: 0,                  // 天井カウンタ（★3が出るとリセット）
+    pulls: 0,                 // 総ガチャ回数
+    playerName: "",           // 対戦コードに載せる名前
+    gachaSeen: false,         // ガチャ画面を一度開いたか（バッジ表示用）
   };
 }
 
@@ -202,7 +232,7 @@ const ENEMIES = {
   imp:    { key: "imp",    name: "インプ",       look: "imp",    hp: 175,  atk: 28,  range: 178, interval: 1.3,  speed: 50, bounty: 25, pop: 2, proj: "darkArrow" },
   golem:  { key: "golem",  name: "ゴーレム",     look: "golem",  hp: 1150, atk: 56,  range: 36,  interval: 1.6,  speed: 26, bounty: 62, r: 26, pop: 3 },
   witch:  { key: "witch",  name: "まじょ",       look: "witch",  hp: 245,  atk: 52,  range: 205, interval: 1.8,  speed: 44, bounty: 42, pop: 3, proj: "hex", aoe: 62 },
-  boss:   { key: "boss",   name: "まおうグラル", look: "demon",  hp: 3600, atk: 110, range: 56,  interval: 1.9,  speed: 30, bounty: 320, r: 30, pop: 6, boss: true, aoeMelee: true, knock: 42 },
+  boss:   { key: "boss",   name: "まおうグラル", look: "demon",  hp: 2800, atk: 88, range: 56,  interval: 1.95, speed: 30, bounty: 320, r: 30, pop: 6, boss: true, aoeMelee: true, knock: 42 },
 };
 
 // ステージ。lineup は [敵キー, 出現重み] の組
@@ -223,14 +253,254 @@ const STAGES = [
 
 const STAGE_COUNT = STAGES.length;
 
-function stageEnemyMult(n) { return 1 + (n - 1) * 0.17; }     // n は 1 始まり
-function stageTowerHp(n) { return 800 + n * 330; }
+function stageEnemyMult(n) { return 1 + (n - 1) * 0.15; }     // n は 1 始まり
+function stageTowerHp(n) { return 750 + n * 265; }
 function stageReward(n) { return 70 + n * 35; }
 
 const MAX_UNIT_LV = 12;
 function unitLevel(key) { return save.unitLv[key] || 1; }
 function unitStatMult(key) { return 1 + 0.13 * (unitLevel(key) - 1); }
 function upgradeCost(key) { return Math.round((80 * Math.pow(1.55, unitLevel(key) - 1)) / 10) * 10; }
+
+/* ============================================================
+ * 3b. ヒーロー / ガチャ / デッキ / PvP データ
+ *   campaign とは独立した「あつめて対戦」システム。
+ *   ヒーローのステータスは ロール雛形 × レア度 × 限界突破 で決まる。
+ * ============================================================ */
+
+// ロール雛形（素のステータス）
+const ROLE_TPL = {
+  melee:    { hp: 240, atk: 30, range: 28,  interval: 0.7,  speed: 66, cost: 40,  cd: 1.4 },
+  assassin: { hp: 205, atk: 52, range: 26,  interval: 0.55, speed: 90, cost: 95,  cd: 3.0 },
+  archer:   { hp: 150, atk: 36, range: 195, interval: 1.15, speed: 56, cost: 85,  cd: 2.6, proj: "arrow" },
+  tank:     { hp: 980, atk: 24, range: 30,  interval: 1.2,  speed: 36, cost: 150, cd: 5.0 },
+  healer:   { hp: 250, atk: 12, range: 150, interval: 1.4,  speed: 50, cost: 130, cd: 6.0, heal: 50 },
+  mage:     { hp: 175, atk: 62, range: 215, interval: 1.9,  speed: 46, cost: 180, cd: 7.0, proj: "orb", aoe: 72 },
+  bomber:   { hp: 200, atk: 80, range: 205, interval: 2.1,  speed: 46, cost: 205, cd: 8.0, proj: "orb", aoe: 98 },
+  bruiser:  { hp: 680, atk: 96, range: 42,  interval: 1.7,  speed: 40, cost: 280, cd: 11.0, aoeMelee: true, knock: 30, r: 24 },
+};
+
+// レア度ごとの倍率・色
+const RARITY = {
+  1: { mult: 0.85, costMult: 0.9,  color: "#9fb4d8", glow: "#6f8ec4", name: "★" },
+  2: { mult: 1.0,  costMult: 1.0,  color: "#7ce7a2", glow: "#3fbf6e", name: "★★" },
+  3: { mult: 1.2,  costMult: 1.12, color: "#ffd54a", glow: "#ff9d2e", name: "★★★" },
+};
+
+// ★3スキルの表示メタ（効果は applySkill 系で実装）
+const SKILLS = {
+  splash:     { name: "りゅうせんぷう",   icon: "🌀", desc: "こうげきが周囲の敵にも当たる" },
+  aura_atk:   { name: "まりょくかいほう", icon: "✨", desc: "周囲の味方のこうげき +25%" },
+  aura_guard: { name: "ふくつのまもり",   icon: "🛡️", desc: "周囲の味方の被ダメージ -22%" },
+  aura_heal:  { name: "せいなるうた",     icon: "🎵", desc: "周囲の味方をすこしずつ回復" },
+  crit:       { name: "ひっさつのいちげき", icon: "⚡", desc: "3回に1回 2.2倍のダメージ" },
+  explode:    { name: "じばく",           icon: "💥", desc: "たおれる時、周囲へ大ダメージ" },
+};
+
+// ヒーロー図鑑。base:true は最初から所持。skill は ★3 のみ。
+const HEROES = [
+  // --- 基本（最初から所持）---
+  { key: "mike",  name: "みけ",    role: "melee",    rarity: 1, look: "cat",    base: true },
+  { key: "usa",   name: "うさ",    role: "archer",   rarity: 1, look: "rabbit", base: true },
+  { key: "pochi", name: "ぽち",    role: "tank",     rarity: 2, look: "dog",    base: true },
+  { key: "moko",  name: "もこ",    role: "healer",   rarity: 2, look: "sheep",  base: true },
+  { key: "fuku",  name: "ふく",    role: "mage",     rarity: 2, look: "owl",    base: true },
+  { key: "kuma",  name: "くま",    role: "bruiser",  rarity: 2, look: "bear",   base: true },
+  // --- ★1 ---
+  { key: "chibi", name: "ちびトラ", role: "melee",   rarity: 1, look: "cat",    skin: { body: "#d9d2c8", cheek: "#e7a98c" } },
+  { key: "nora",  name: "ノラ",     role: "assassin", rarity: 1, look: "cat",    skin: { body: "#6f6f7a", cheek: "#b25" } },
+  { key: "pyon",  name: "ぴょん",   role: "archer",  rarity: 1, look: "rabbit", skin: { body: "#ffe7b0" } },
+  { key: "wanko", name: "わんこ",   role: "tank",    rarity: 1, look: "dog",    skin: { body: "#e0b07a" } },
+  { key: "fuwa",  name: "ふわ",     role: "healer",  rarity: 1, look: "sheep",  skin: { cheek: "#bfe0ff" } },
+  // --- ★2 ---
+  { key: "aone",  name: "アオネコ", role: "melee",   rarity: 2, look: "cat",    skin: { body: "#7fb6e8", cheek: "#9fe" } },
+  { key: "shoot", name: "シュート", role: "archer",  rarity: 2, look: "rabbit", skin: { body: "#bff0d0" } },
+  { key: "gaado", name: "ガード",   role: "tank",    rarity: 2, look: "dog",    skin: { body: "#9aa8c4" } },
+  { key: "marl",  name: "マール",   role: "mage",    rarity: 2, look: "owl",    skin: { body: "#8fa0e8" } },
+  { key: "bomb",  name: "ボマー",   role: "bomber",  rarity: 2, look: "imp",    skin: { body: "#e0a85c", belly: "#f6d6a6" } },
+  { key: "pengo", name: "ペンゴ",   role: "bruiser", rarity: 2, look: "bear",   skin: { body: "#5b6b86", belly: "#cfe0ff" } },
+  // --- ★3（スキル持ち）---
+  { key: "drao",  name: "竜帝ドラオ", role: "bruiser", rarity: 3, look: "bear",  skin: { body: "#caa23a", belly: "#ffe9a8" }, skill: "splash" },
+  { key: "noel",  name: "聖女ノエル", role: "healer",  rarity: 3, look: "sheep", skin: { cheek: "#ffd0dc" }, skill: "aura_heal" },
+  { key: "vell",  name: "魔女ヴェル", role: "mage",    rarity: 3, look: "witch", skin: { body: "#caa0ee", belly: "#ecd9ff" }, skill: "aura_atk" },
+  { key: "gareth", name: "騎士ガレス", role: "tank",   rarity: 3, look: "dog",   skin: { body: "#d8c87a" }, skill: "aura_guard" },
+  { key: "shino", name: "影丸シノ",   role: "assassin", rarity: 3, look: "cat",  skin: { body: "#3a3a48", cheek: "#a44" }, skill: "crit" },
+  { key: "bon",   name: "爆弾魔ボン", role: "bomber",  rarity: 3, look: "imp",   skin: { body: "#cfcf5a", belly: "#eeeeb0" }, skill: "explode" },
+];
+
+const HERO_BY_KEY = {};
+const HERO_KEYS = [];
+for (const h of HEROES) { HERO_BY_KEY[h.key] = h; HERO_KEYS.push(h.key); }
+const BASE_HERO_KEYS = HEROES.filter((h) => h.base).map((h) => h.key);
+const GACHA_POOL = HEROES.filter((h) => !h.base);
+
+function lookRadius(look) { return (look === "bear" || look === "golem" || look === "demon") ? 24 : 18; }
+
+// ヒーロー所持・限界突破
+function isHeroOwned(key) {
+  const h = HERO_BY_KEY[key];
+  return !!h && (h.base || !!save.heroes[key]);
+}
+function heroLb(key) { return (save.heroes[key] && save.heroes[key].lb) || 0; }
+function ownedHeroKeys() { return HERO_KEYS.filter(isHeroOwned); }
+
+// 限界突破の倍率（重複で強化）
+function lbMult(lb) { return 1 + 0.05 * lb; }
+
+// ヒーロー → 戦闘用スペック
+function heroSpec(key, lb = 0) {
+  const h = HERO_BY_KEY[key];
+  const tpl = ROLE_TPL[h.role];
+  const rar = RARITY[h.rarity];
+  const m = rar.mult * lbMult(lb);
+  const spec = {
+    key: h.key, name: h.name, look: h.look, skin: h.skin || null,
+    role: h.role, rarity: h.rarity, skill: h.skill || null,
+    r: tpl.r || lookRadius(h.look),
+    hp: Math.round(tpl.hp * m),
+    atk: Math.round(tpl.atk * m),
+    range: tpl.range, interval: tpl.interval, speed: tpl.speed,
+    cost: Math.max(20, Math.round((tpl.cost * rar.costMult) / 5) * 5),
+    cd: tpl.cd,
+    proj: tpl.proj || null,
+    aoe: tpl.aoe || 0,
+    heal: tpl.heal ? Math.round(tpl.heal * m) : 0,
+    aoeMelee: !!tpl.aoeMelee,
+    knock: tpl.knock || 0,
+  };
+  return spec;
+}
+
+// 図鑑用：強さの目安
+function heroPower(key, lb = 0) {
+  const s = heroSpec(key, lb);
+  return Math.round((s.hp * 0.1 + (s.atk + s.heal) / s.interval) * (s.skill ? 1.25 : 1));
+}
+
+/* ---- ガチャ ---- */
+const GACHA = {
+  single: 5, ten: 45,
+  rates: { 3: 0.04, 2: 0.2, 1: 0.76 },
+  pity: 50,         // この回数 ★3 が出なければ次は確定
+  exchange: { gold: 200, gems: 10 },
+};
+
+function rollRarity() {
+  save.pity++;
+  if (save.pity >= GACHA.pity) { save.pity = 0; return 3; }
+  const r = Math.random();
+  if (r < GACHA.rates[3]) { save.pity = 0; return 3; }
+  if (r < GACHA.rates[3] + GACHA.rates[2]) return 2;
+  return 1;
+}
+function grantHero(key) {
+  const wasNew = !isHeroOwned(key) || (!HERO_BY_KEY[key].base && !save.heroes[key]);
+  if (!save.heroes[key]) save.heroes[key] = { lb: 0, dupes: 0 };
+  const rec = save.heroes[key];
+  let isNew = wasNew;
+  if (!wasNew) { rec.dupes++; rec.lb = Math.min(4, rec.lb + 1); }
+  return { key, rarity: HERO_BY_KEY[key].rarity, isNew, lb: rec.lb };
+}
+function rollOnce() {
+  const rarity = rollRarity();
+  const pool = GACHA_POOL.filter((h) => h.rarity === rarity);
+  const hero = pick(pool);
+  save.pulls++;
+  return grantHero(hero.key);
+}
+function rollMany(n) {
+  const results = [];
+  for (let i = 0; i < n; i++) results.push(rollOnce());
+  // 10連は★2以上を1体保証
+  if (n >= 10 && results.every((r) => HERO_BY_KEY[r.key].rarity === 1)) {
+    const up = pick(GACHA_POOL.filter((h) => h.rarity === 2));
+    results[results.length - 1] = grantHero(up.key);
+  }
+  return results;
+}
+
+/* ---- デッキ ---- */
+const DECK_SIZE = 6;
+function ensureDeck() {
+  if (!Array.isArray(save.deck)) save.deck = [];
+  save.deck = save.deck.filter((k) => HERO_BY_KEY[k] && isHeroOwned(k));
+  if (save.deck.length === 0) save.deck = BASE_HERO_KEYS.slice(0, DECK_SIZE);
+  save.deck = save.deck.slice(0, DECK_SIZE);
+}
+function deckSpecs(entries) {
+  // entries: [{key, lb}] → [spec]
+  return entries.map((e) => heroSpec(e.key, e.lb || 0));
+}
+function myDeckSpecs() {
+  ensureDeck();
+  return deckSpecs(save.deck.map((k) => ({ key: k, lb: heroLb(k) })));
+}
+
+/* ---- 対戦コード（共有・URL） ---- */
+function b64uEncode(str) {
+  const b = btoa(unescape(encodeURIComponent(str)));
+  return b.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function b64uDecode(str) {
+  let s = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  return decodeURIComponent(escape(atob(s)));
+}
+function playerName() {
+  return (save.playerName && save.playerName.trim()) || "ゆうしゃ";
+}
+function buildShareCode(deck = save.deck, name = playerName(), rank = save.arena.rank) {
+  ensureDeck();
+  const payload = {
+    v: 1, n: String(name).slice(0, 12), r: rank,
+    d: deck.map((k) => [HERO_KEYS.indexOf(k), heroLb(k)]).filter((p) => p[0] >= 0),
+  };
+  return b64uEncode(JSON.stringify(payload));
+}
+function parseShareCode(code) {
+  try {
+    const p = JSON.parse(b64uDecode(code.trim()));
+    if (!p || p.v !== 1 || !Array.isArray(p.d)) return null;
+    const entries = p.d
+      .map(([idx, lb]) => ({ key: HERO_KEYS[idx], lb: clamp(lb | 0, 0, 4) }))
+      .filter((e) => e.key && HERO_BY_KEY[e.key]);
+    if (entries.length === 0) return null;
+    return { name: String(p.n || "ライバル").slice(0, 12), rank: p.r | 0 || 1, entries: entries.slice(0, DECK_SIZE) };
+  } catch {
+    return null;
+  }
+}
+function shareURL(code) {
+  const base = (typeof location !== "undefined" ? location.origin + location.pathname : "rangers.html");
+  return `${base}#vs=${code}`;
+}
+
+/* ---- ランクマッチ（CPUライバル）---- */
+const RANK_TIERS = ["ビギナー", "ブロンズ", "シルバー", "ゴールド", "プラチナ", "ダイヤ", "マスター", "レジェンド"];
+function rankTier(rank) { return RANK_TIERS[clamp(Math.floor((rank - 1) / 3), 0, RANK_TIERS.length - 1)]; }
+function rankLabel(rank) { return `${rankTier(rank)} ${((rank - 1) % 3) + 1}`; }
+
+const RIVAL_NAMES = ["くろねこ団", "ゴブ大将", "まりょく学園", "鉄壁シールズ", "もふもふ隊", "いかずち party", "つきよの会", "ドラゴンズ", "ぷりん同盟", "north star"];
+function rivalDeck(rank) {
+  const rng = makeRng(hashStr("rival#" + rank));
+  const star3 = clamp(Math.floor((rank - 1) / 2), 0, 6);   // 上位ほど★3が増える
+  const lb = clamp(Math.floor((rank - 1) / 4), 0, 4);
+  const wantRoles = ["tank", "healer", "archer", "mage", "melee", "bruiser"];
+  const entries = [];
+  for (let i = 0; i < DECK_SIZE; i++) {
+    const role = wantRoles[i % wantRoles.length];
+    const minRarity = i < star3 ? 3 : 1;
+    const cands = HEROES.filter((h) => h.role === role && h.rarity >= minRarity);
+    const hero = cands.length ? rng.pick(cands) : rng.pick(HEROES.filter((h) => h.role === role));
+    entries.push({ key: (hero || rng.pick(HEROES)).key, lb });
+  }
+  return { name: rng.pick(RIVAL_NAMES), rank, entries };
+}
+function rankDelta(win, myRank, oppRank) {
+  const diff = oppRank - myRank;
+  if (win) return clamp(3 + diff, 1, 8);
+  return -clamp(3 - diff, 1, 6);
+}
 
 /* ============================================================
  * 4. キャラクター描画
@@ -266,7 +536,7 @@ function shade(hex, f) {
  *      deadT:死亡演出0..1(-1で無し), flash:被弾白フラッシュ0..1, boss:ボスか }
  */
 function drawCharacter(ctx, look, r, o) {
-  const L = LOOKS[look];
+  const L = o && o.skin ? Object.assign({}, LOOKS[look], o.skin) : LOOKS[look];
   const t = o.t || 0;
   const walk = o.moving ? Math.sin(t * 11) : 0;
   const bob = o.moving ? Math.abs(Math.sin(t * 11)) * r * 0.12 : Math.sin(t * 2.4) * r * 0.05;
@@ -635,7 +905,22 @@ const GROUND_Y = 460;       // 地面の基準線
 const TOWER_HALF = 46;      // とりでの当たり判定半幅
 const PLAYER_TOWER_X = 90;
 const ENEMY_TOWER_X = WORLD_W - 90;
-const MAX_ALLIES = 18;      // 重くならないよう召喚上限
+const MAX_ALLIES = 18;      // 重くならないよう召喚上限（片側あたり）
+
+// アリーナ（PvP）設定
+const ARENA_TOWER_HP = 2600;
+const ARENA_START_MANA = 120;
+const ARENA_TIME = 150;     // 制限時間（秒）。タイムアップ時はとりで残量で判定
+
+// campaign ユニット → ゴールド強化を反映した最終スペック
+function campaignUnitSpec(u) {
+  const m = unitStatMult(u.key);
+  return Object.assign({}, u, {
+    hp: Math.round(u.hp * m),
+    atk: Math.round(u.atk * m),
+    heal: u.heal ? Math.round(u.heal * m) : 0,
+  });
+}
 
 class Fighter {
   constructor(spec, side, x, mult) {
@@ -656,6 +941,9 @@ class Fighter {
     this.flash = 0;
     this.moving = false;
     this.fly = !!spec.fly;
+    this.skill = spec.skill || null;        // ★3スキルID
+    this.hits = 0;                          // crit 用の攻撃回数
+    this.skillTimer = 0;                    // aura_heal 等の周期
   }
 
   get alive() { return this.deadT < 0; }
@@ -663,6 +951,8 @@ class Fighter {
 
   takeDamage(dmg, battle, knock = 0) {
     if (!this.alive) return;
+    // 味方の「ふくつのまもり」で被ダメージ軽減
+    dmg = Math.max(1, Math.round(dmg * battle.guardMult(this)));
     this.hp -= dmg;
     this.flash = 1;
     battle.addPopup(this.x, this.feetY - this.r * 2.4, `${dmg}`, this.side === 1 ? "#ff8d9d" : "#fff");
@@ -689,6 +979,15 @@ class Fighter {
       if (this.attackAnim >= 1) this.attackAnim = -1;
     }
     this.atkTimer -= dt;
+
+    // 「せいなるうた」：周囲の味方を周期回復するオーラ
+    if (this.skill === "aura_heal") {
+      this.skillTimer += dt;
+      if (this.skillTimer >= 1.6) {
+        this.skillTimer = 0;
+        battle.skillHealAura(this);
+      }
+    }
 
     // 回復役：傷ついた味方が射程内にいれば最優先で回復
     if (this.heal > 0) {
@@ -720,7 +1019,7 @@ class Fighter {
           battle.meleeAoe(this);
           SFX.knock();
         } else {
-          battle.dealDamage(this, target, this.atk);
+          battle.attackMelee(this, target);
           SFX.hit();
         }
       }
@@ -737,12 +1036,16 @@ class Fighter {
 
 class Battle {
   constructor(stageNo, opts = {}) {
+    this.arena = !!opts.arena;
     this.endless = !!opts.endless;
-    this.stageNo = stageNo;                 // 1 始まり（エンドレスは 0）
-    this.stage = this.endless
-      ? { name: "エンドレス", interval: 2.7,
-          lineup: [["slime", 2], ["bat", 2], ["goblin", 2], ["imp", 2], ["golem", 1], ["witch", 1]] }
-      : STAGES[stageNo - 1];
+    this.stageNo = stageNo;                 // 1 始まり（エンドレス/アリーナは 0）
+    this.stage = this.arena
+      ? { name: "アリーナ", interval: 0 }
+      : this.endless
+        ? { name: "エンドレス", interval: 2.7,
+            lineup: [["slime", 2], ["bat", 2], ["goblin", 2], ["imp", 2], ["golem", 1], ["witch", 1]] }
+        : STAGES[stageNo - 1];
+    this.rng = makeRng(((opts.seed || (Date.now() & 0x7fffffff)) >>> 0) || 1);
     this.time = 0;
     this.kills = 0;
     this.summons = 0;
@@ -753,32 +1056,47 @@ class Battle {
     this.shake = 0;
     this.over = null;                       // { win, t }
 
-    this.playerTower = { x: PLAYER_TOWER_X, halfW: TOWER_HALF, hp: 1200, maxHp: 1200, isTower: true, side: 1, shake: 0 };
+    const pHp = this.arena ? ARENA_TOWER_HP : 1700;
+    this.playerTower = { x: PLAYER_TOWER_X, halfW: TOWER_HALF, hp: pHp, maxHp: pHp, isTower: true, side: 1, shake: 0 };
     this.enemyTower = this.endless
       // エンドレスは敵側が「破壊できないポータル」。守り抜いた時間を競う
       ? { x: ENEMY_TOWER_X, halfW: TOWER_HALF, hp: Infinity, maxHp: Infinity, isTower: true, side: -1, shake: 0, portal: true }
-      : { x: ENEMY_TOWER_X, halfW: TOWER_HALF, hp: stageTowerHp(stageNo), maxHp: stageTowerHp(stageNo), isTower: true, side: -1, shake: 0 };
+      : (() => {
+          const hp = this.arena ? ARENA_TOWER_HP : stageTowerHp(stageNo);
+          return { x: ENEMY_TOWER_X, halfW: TOWER_HALF, hp, maxHp: hp, isTower: true, side: -1, shake: 0 };
+        })();
     this.nextMiniBoss = 75;                 // エンドレス：定期的にボス級が出現
 
-    // マナ
+    // 自軍（プレイヤー）のデッキ＝カード列
+    this.roster = this.arena ? (opts.playerSpecs || myDeckSpecs()) : UNITS.map((u) => campaignUnitSpec(u));
+    this.locked = this.arena ? this.roster.map(() => false) : UNITS.map((u) => !isUnitUnlocked(u));
+    this.cardCd = this.roster.map(() => 0);
+
+    // マナ（自軍）
     this.manaLv = 1;
-    this.mana = 80;
-    this.cardCd = UNITS.map(() => 0);
+    this.mana = this.arena ? ARENA_START_MANA : 80;
 
     // 必殺技（メテオ）
     this.skillCdMax = 45;
-    this.skillCd = 20;
+    this.skillCd = this.arena ? 30 : 20;
 
-    // 敵スポーン管理
-    this.spawnTimer = 4.5;                  // 開始直後の猶予
-    this.rushAt = 40;
-    this.bossSpawned = false;
-    this.bossPauseUntil = 0;
-
-    // 出現テーブル（重み展開）
-    this.pool = [];
-    for (const [key, w] of this.stage.lineup) {
-      for (let i = 0; i < w; i++) this.pool.push(ENEMIES[key]);
+    if (this.arena) {
+      // 相手将（AI）
+      this.oppName = opts.oppName || "ライバル";
+      this.oppRank = opts.oppRank || 1;
+      this.enemyCmd = new Commander(this, -1, opts.oppSpecs || [], this.oppName);
+    } else {
+      this.enemyCmd = null;
+      // 敵スポーン管理
+      this.spawnTimer = 4.5;                // 開始直後の猶予
+      this.rushAt = 40;
+      this.bossSpawned = false;
+      this.bossPauseUntil = 0;
+      // 出現テーブル（重み展開）
+      this.pool = [];
+      for (const [key, w] of this.stage.lineup) {
+        for (let i = 0; i < w; i++) this.pool.push(ENEMIES[key]);
+      }
     }
   }
 
@@ -795,19 +1113,27 @@ class Battle {
   allies() { return this.fighters.filter((f) => f.side === 1 && f.alive); }
   foesOf(side) { return this.fighters.filter((f) => f.side !== side && f.alive); }
   towerOf(side) { return side === 1 ? this.enemyTower : this.playerTower; }
+  sideAlive(side) { return this.fighters.reduce((n, f) => n + (f.side === side && f.alive ? 1 : 0), 0); }
 
+  // 指定スペックを指定サイドに出撃させる（stats はスペックに焼き込み済みの前提）
+  spawnFighter(spec, side) {
+    const x = side === 1 ? PLAYER_TOWER_X + TOWER_HALF + 14 : ENEMY_TOWER_X - TOWER_HALF - 14;
+    const f = new Fighter(spec, side, x, { hp: 1, atk: 1 });
+    this.fighters.push(f);
+    this.addPoof(f.x, f.feetY - f.r, side === 1 ? "#ffe3b3" : "#caa8ff");
+    return f;
+  }
+
+  // 自軍カードから召喚（idx = カード列のインデックス）
   summon(idx) {
-    const spec = UNITS[idx];
-    if (!isUnitUnlocked(spec)) return false;
+    const spec = this.roster[idx];
+    if (!spec || this.locked[idx]) return false;
     if (this.over || this.cardCd[idx] > 0 || this.mana < spec.cost) return false;
-    if (this.allies().length >= MAX_ALLIES) return false;
+    if (this.sideAlive(1) >= MAX_ALLIES) return false;
     this.mana -= spec.cost;
     this.cardCd[idx] = spec.cd;
     this.summons++;
-    const m = unitStatMult(spec.key);
-    const f = new Fighter(spec, 1, PLAYER_TOWER_X + TOWER_HALF + 14, { hp: m, atk: m });
-    this.fighters.push(f);
-    this.addPoof(f.x, f.feetY - f.r);
+    this.spawnFighter(spec, 1);
     SFX.summon();
     return true;
   }
@@ -888,6 +1214,48 @@ class Battle {
     return best;
   }
 
+  /* ---- スキル（★3）の補助 ---- */
+  // 「まりょくかいほう」：周囲に味方の atk オーラがあれば攻撃力UP
+  auraAtkMult(src) {
+    let n = 0;
+    for (const a of this.fighters) {
+      if (a.side === src.side && a.alive && a.skill === "aura_atk" && Math.abs(a.x - src.x) <= 130) n++;
+    }
+    return 1 + 0.25 * Math.min(2, n);
+  }
+  // 「ふくつのまもり」：周囲に味方の guard オーラがあれば被ダメ減
+  guardMult(target) {
+    for (const a of this.fighters) {
+      if (a.side === target.side && a.alive && a.skill === "aura_guard" && a !== target && Math.abs(a.x - target.x) <= 120) {
+        return 0.78;
+      }
+    }
+    return 1;
+  }
+  // 「ひっさつのいちげき」：3回に1回クリティカル。攻撃のたびにダメージを算出
+  computeAttack(src) {
+    let dmg = src.atk * this.auraAtkMult(src);
+    let crit = false;
+    if (src.skill === "crit") {
+      src.hits++;
+      if (src.hits % 3 === 0) { dmg *= 2.2; crit = true; }
+    }
+    return { dmg: Math.round(dmg), crit };
+  }
+  // 「せいなるうた」：周囲の味方を回復
+  skillHealAura(src) {
+    const amt = Math.round(src.maxHp * 0.05 + 18);
+    let any = false;
+    for (const a of this.fighters) {
+      if (a.side === src.side && a.alive && a.hp < a.maxHp && Math.abs(a.x - src.x) <= 150) {
+        a.hp = Math.min(a.maxHp, a.hp + amt);
+        this.addHealSpark(a.x, a.feetY - a.r);
+        any = true;
+      }
+    }
+    if (any) this.addPopup(src.x, src.feetY - src.r * 2.6, "🎵", "#7ce7a2");
+  }
+
   /* ---- ダメージ処理 ---- */
   dealDamage(src, target, dmg, knock = 0) {
     if (target.isTower) {
@@ -902,18 +1270,38 @@ class Battle {
     }
   }
 
+  // 通常の近接攻撃（クリティカル／「りゅうせんぷう」範囲化を反映）
+  attackMelee(src, target) {
+    const { dmg, crit } = this.computeAttack(src);
+    if (crit) this.addPopup(target.isTower ? target.x : target.x, (target.isTower ? GROUND_Y - 200 : target.feetY - target.r * 2.8), "クリティカル!", "#ffd54a");
+    if (src.skill === "splash") {
+      // 対象を中心に小範囲へ
+      const cx = target.x;
+      for (const e of this.foesOf(src.side)) {
+        if (Math.abs(e.x - cx) <= 52 + e.halfW) e.takeDamage(dmg, this, src.spec.knock || 0);
+      }
+      const tw = this.towerOf(src.side);
+      if (!target.isTower && Math.abs(tw.x - cx) <= 52 + tw.halfW) this.dealDamage(src, tw, dmg);
+      else if (target.isTower) this.dealDamage(src, tw, dmg);
+      this.addPoof(cx, GROUND_Y - 20, "#ffd54a");
+    } else {
+      this.dealDamage(src, target, dmg, src.spec.knock || 0);
+    }
+  }
+
   meleeAoe(src) {
+    const { dmg } = this.computeAttack(src);
     const hitR = src.spec.range + src.halfW + 30;
     let any = false;
     for (const e of this.foesOf(src.side)) {
       if ((e.x - src.x) * src.side > -10 && Math.abs(e.x - src.x) <= hitR + e.halfW) {
-        e.takeDamage(src.atk, this, src.spec.knock || 0);
+        e.takeDamage(dmg, this, src.spec.knock || 0);
         any = true;
       }
     }
     const tower = this.towerOf(src.side);
     if (Math.abs(tower.x - src.x) <= hitR + tower.halfW) {
-      this.dealDamage(src, tower, src.atk);
+      this.dealDamage(src, tower, dmg);
       any = true;
     }
     if (any) this.shake = Math.max(this.shake, 3);
@@ -921,20 +1309,37 @@ class Battle {
 
   addProjectile(src, target) {
     const y = src.feetY - src.r * 1.2;
+    const { dmg } = this.computeAttack(src);
     this.projectiles.push({
       kind: src.spec.proj, side: src.side,
       x: src.x + src.side * src.r, y,
       target, lastX: target.x, lastY: target.isTower ? GROUND_Y - 90 : target.feetY - target.r,
-      speed: 430, dmg: src.atk, aoe: src.spec.aoe || 0, trail: 0,
+      speed: 430, dmg, aoe: src.spec.aoe || 0, trail: 0,
     });
   }
 
   onDeath(f) {
     this.addPoof(f.x, f.feetY - f.r, f.side === 1 ? "#ffe3b3" : "#caa8ff");
-    if (f.side === -1) {
+    // 「じばく」：たおれる時に周囲へ大ダメージ
+    if (f.skill === "explode") {
+      const dmg = Math.round(f.maxHp * 0.12 + f.atk * 1.4);
+      for (const e of this.foesOf(f.side)) {
+        if (Math.abs(e.x - f.x) <= 95 + e.halfW) e.takeDamage(dmg, this, 16);
+      }
+      const tw = this.towerOf(f.side);
+      if (Math.abs(tw.x - f.x) <= 95 + tw.halfW) this.dealDamage(f, tw, dmg);
+      this.shake = Math.max(this.shake, 6);
+      SFX.meteor();
+      for (let i = 0; i < 12; i++) {
+        this.addParticle({ x: f.x + rand(-20, 20), y: f.feetY - rand(0, 30), vx: rand(-180, 180), vy: rand(-260, -40), r: rand(3, 7), t: 0, life: 0.6, color: pick(["#ff9d5c", "#ffd54a", "#ffe082"]), grav: 600 });
+      }
+    }
+    if (f.side === -1 && !this.arena) {
       this.kills++;
-      this.mana = Math.min(this.manaMax, this.mana + f.spec.bounty);
+      this.mana = Math.min(this.manaMax, this.mana + (f.spec.bounty || 0));
       this.addPopup(f.x, f.feetY - f.r * 2.8, `+${f.spec.bounty}マナ`, "#7ce7ff");
+    } else if (f.side === -1 && this.arena) {
+      this.kills++;
     }
   }
 
@@ -950,6 +1355,16 @@ class Battle {
       this.over = { win: false, t: 0 };
       SFX.defeat();
     }
+  }
+
+  // アリーナのタイムアップ判定：とりで残量割合が高い方が勝ち
+  endArenaByTime() {
+    if (this.over) return;
+    const pr = this.playerTower.hp / this.playerTower.maxHp;
+    const er = this.enemyTower.hp / this.enemyTower.maxHp;
+    const win = pr >= er;
+    this.over = { win, t: 0, byTime: true };
+    if (win) { this.addConfetti(ENEMY_TOWER_X, GROUND_Y - 120); SFX.victory(); } else SFX.defeat();
   }
 
   /* ---- エフェクト ---- */
@@ -986,12 +1401,15 @@ class Battle {
 
   /* ---- 敵スポーンのスケジューリング ---- */
   // 同時に存在できる敵の上限。物量で詰まないようにするための安全弁
+  // ボス戦は「ボスとの一騎打ち」を演出するため、取り巻きを絞る
   enemyCap() {
-    return this.endless ? 20 : Math.min(14, 8 + Math.floor(this.stageNo / 2));
+    if (this.endless) return 20;
+    if (this.stage.boss) return 9;
+    return Math.min(14, 8 + Math.floor(this.stageNo / 2));
   }
 
   updateSpawns(dt) {
-    if (this.over) return;
+    if (this.over || this.arena) return;   // アリーナは敵将AIが召喚するので別処理
     this.spawnTimer -= dt;
 
     // エンドレス：定期的にボス級（弱体化版）が乱入。枠は無視して登場する
@@ -1024,7 +1442,8 @@ class Battle {
 
     if (this.spawnTimer <= 0) {
       // 時間とともに出現間隔を詰めて圧力を上げる（通常ステージは下限あり）
-      const floor = this.endless ? 1.1 : 1.5;
+      // ボス戦は取り巻きをまばらにして、ボスを主役にする
+      const floor = this.endless ? 1.1 : this.stage.boss ? 2.4 : 1.5;
       const interval = Math.max(floor, this.stage.interval - this.time * 0.012);
       // 枠に収まる敵だけが候補。すべて埋まっていれば少し待つ
       const candidates = this.pool.filter((s) => this.canSpawn(s));
@@ -1048,6 +1467,9 @@ class Battle {
       this.skillCd = Math.max(0, this.skillCd - dt);
       for (let i = 0; i < this.cardCd.length; i++) this.cardCd[i] = Math.max(0, this.cardCd[i] - dt);
       this.updateSpawns(dt);
+      if (this.enemyCmd) this.enemyCmd.update(dt);
+      // アリーナ：制限時間で決着（とりで残量で判定）
+      if (this.arena && this.time >= ARENA_TIME) this.endArenaByTime();
     } else {
       this.over.t += dt;
     }
@@ -1123,6 +1545,75 @@ class Battle {
 
 // ポーズ中に発火しないよう、戦闘内の遅延はゲーム時間ではなく実時間+生存チェックで簡易に行う
 function setTimeoutSafe(fn, ms) { setTimeout(fn, ms); }
+
+/* ============================================================
+ * 5b. アリーナのAI将（相手デッキを自動運用）
+ * ============================================================ */
+class Commander {
+  constructor(battle, side, specs, name) {
+    this.battle = battle;
+    this.side = side;
+    this.deck = specs.slice(0, DECK_SIZE);
+    this.name = name;
+    this.cardCd = this.deck.map(() => 0);
+    this.manaLv = 1;
+    this.mana = ARENA_START_MANA;
+    this.think = 0.6;                       // 判断のクールダウン（連打防止）
+  }
+  get manaMax() { return 350 + (this.manaLv - 1) * 110; }
+  get manaRegen() { return 14 + (this.manaLv - 1) * 7; }
+  get manaUpCost() { return 70 * this.manaLv; }
+
+  update(dt) {
+    const b = this.battle;
+    this.mana = Math.min(this.manaMax, this.mana + this.manaRegen * dt);
+    for (let i = 0; i < this.cardCd.length; i++) this.cardCd[i] = Math.max(0, this.cardCd[i] - dt);
+    this.think -= dt;
+    if (this.think > 0) return;
+    this.think = b.rng.range(0.45, 0.85);
+
+    if (b.sideAlive(this.side) >= MAX_ALLIES) return;
+
+    // たまにマナを強化（序盤、余裕がある時）
+    if (this.manaLv < 4 && this.mana >= this.manaUpCost && b.rng() < 0.3) {
+      this.mana -= this.manaUpCost; this.manaLv++; return;
+    }
+
+    const myAlive = b.fighters.filter((f) => f.side === this.side && f.alive);
+    const foes = b.foesOf(this.side);
+    const haveTank = myAlive.some((f) => f.spec.role === "tank" || f.spec.aoeMelee);
+    const haveHealer = myAlive.some((f) => f.heal > 0);
+    const foeRanged = foes.filter((f) => f.spec.proj).length;
+    const myRanged = myAlive.filter((f) => f.spec.proj).length;
+
+    // 候補：今だせるカード
+    const affordable = this.deck
+      .map((spec, i) => ({ spec, i }))
+      .filter(({ spec, i }) => this.cardCd[i] <= 0 && this.mana >= spec.cost);
+    if (affordable.length === 0) return;
+
+    // 役割の必要度でスコアづけ
+    const score = ({ spec }) => {
+      let s = spec.cost * 0.3;                       // 基本は高コストを優先（強い）
+      if (!haveTank && (spec.role === "tank" || spec.aoeMelee)) s += 120;
+      if (!haveHealer && spec.heal > 0) s += 70;
+      if (foeRanged > myRanged && spec.proj) s += 60;
+      if (spec.rarity === 3) s += 25;
+      if (myAlive.length < 2 && spec.role === "melee") s += 30; // 前線が薄いと近接で穴埋め
+      return s + b.rng() * 20;
+    };
+    affordable.sort((a, c) => score(c) - score(a));
+
+    // 序盤はマナを使い切らず温存（経済を回す）
+    const best = affordable[0];
+    const reserve = this.manaLv < 3 ? best.spec.cost * 0.4 : 0;
+    if (this.mana - best.spec.cost < reserve && b.rng() < 0.5) return;
+
+    this.mana -= best.spec.cost;
+    this.cardCd[best.i] = best.spec.cd;
+    b.spawnFighter(best.spec, this.side);
+  }
+}
 
 /* ============================================================
  * 6. 戦場レンダリング
@@ -1371,7 +1862,18 @@ function drawFighter(ctx, f) {
     deadT: f.deadT,
     flash: f.flash,
     fly: f.fly,
+    skin: f.spec.skin || null,
   });
+  // ★3スキル持ちは足元にきらめくリング
+  if (f.alive && f.skill) {
+    ctx.globalAlpha = 0.5 + 0.3 * Math.sin(f.animT * 4);
+    ctx.strokeStyle = f.side === 1 ? "#ffd54a" : "#ff9d5c";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 1, f.r * 1.1, f.r * 0.34, 0, 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
 
   // HP バー（満タン時は出さない）
@@ -1514,6 +2016,32 @@ function renderBattle(battle, t) {
     fctx.fillText(label, viewW / 2, 44);
   }
 
+  // アリーナ：残り時間バー＋相手名＋相手マナ
+  if (battle.arena) {
+    const left = Math.max(0, ARENA_TIME - battle.time);
+    fctx.textAlign = "center";
+    fctx.font = "bold 22px sans-serif";
+    fctx.lineWidth = 5;
+    fctx.strokeStyle = "rgba(20, 12, 40, 0.8)";
+    fctx.strokeText(`⏱ ${fmtTime(left)}`, viewW / 2, 30);
+    fctx.fillStyle = left < 20 ? "#ff8d9d" : "#fff";
+    fctx.fillText(`⏱ ${fmtTime(left)}`, viewW / 2, 30);
+    // 相手名（右上）と相手マナ
+    if (battle.enemyCmd) {
+      const ec = battle.enemyCmd;
+      fctx.textAlign = "right";
+      fctx.font = "bold 13px sans-serif";
+      fctx.strokeText(`👹 ${ec.name}`, viewW - 12, 52);
+      fctx.fillStyle = "#ffd0d8";
+      fctx.fillText(`👹 ${ec.name}`, viewW - 12, 52);
+      const bw = 120, bx = viewW - 12 - bw, by = 60;
+      fctx.fillStyle = "rgba(20,12,40,0.7)";
+      roundRect(fctx, bx - 2, by - 2, bw + 4, 12, 6); fctx.fill();
+      fctx.fillStyle = "#ff8d9d";
+      roundRect(fctx, bx, by, bw * clamp(ec.mana / ec.manaMax, 0, 1), 8, 4); fctx.fill();
+    }
+  }
+
   // 勝敗の帯
   if (battle.over) {
     const a = clamp(battle.over.t / 0.4, 0, 1);
@@ -1523,10 +2051,10 @@ function renderBattle(battle, t) {
     fctx.font = "bold 52px sans-serif";
     fctx.textAlign = "center";
     fctx.globalAlpha = a;
-    fctx.fillText(
-      battle.over.win ? "とりで撃破！" : battle.endless ? "ちからつきた…" : "ぼうえい失敗…",
-      viewW / 2, WORLD_H * 0.47
-    );
+    const msg = battle.over.win
+      ? (battle.arena ? "しょうり！" : "とりで撃破！")
+      : (battle.arena ? "はいぼく…" : battle.endless ? "ちからつきた…" : "ぼうえい失敗…");
+    fctx.fillText(msg, viewW / 2, WORLD_H * 0.47);
     fctx.globalAlpha = 1;
   }
 }
@@ -1565,7 +2093,8 @@ canvas.addEventListener("pointercancel", endDrag);
  * 7. 画面遷移と DOM HUD
  * ============================================================ */
 const $ = (id) => document.getElementById(id);
-const screens = ["title-screen", "select-screen", "upgrade-screen", "achv-screen", "result-screen", "pause-screen"];
+const screens = ["title-screen", "select-screen", "upgrade-screen", "achv-screen",
+  "gacha-screen", "collection-screen", "arena-screen", "result-screen", "pause-screen"];
 
 function showScreen(id) {
   for (const s of screens) $(s).classList.toggle("visible", s === id);
@@ -1581,10 +2110,12 @@ const game = {
   upgradeFrom: "title", // 強化画面からの戻り先
   resultStage: 1,
   tutorial: null,       // チュートリアル表示中のステップ番号
+  arenaOpp: null,       // 直近の対戦相手情報（リトライ用）
+  collectionPick: null, // コレクションで選択中のデッキ枠（null=非選択）
 };
 
 /* ---- ミニキャラアイコンをカードに描く ---- */
-function paintIcon(cv, look, r) {
+function paintIcon(cv, look, r, skin = null) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const size = cv.clientWidth || 42;
   cv.width = size * dpr;
@@ -1594,24 +2125,33 @@ function paintIcon(cv, look, r) {
   c.translate(size / 2, size * 0.88);
   const s = (size * 0.42) / r;
   c.scale(s, s);
-  drawCharacter(c, look, r, { t: 0.6, moving: false, attackT: -1, deadT: -1, flash: 0 });
+  drawCharacter(c, look, r, { t: 0.6, moving: false, attackT: -1, deadT: -1, flash: 0, skin });
 }
 
-/* ---- ユニットカード ---- */
+/* ---- ユニットカード（campaign は UNITS、arena はデッキスペックから生成）---- */
 const cardEls = [];
 function buildCards() {
+  const b = game.battle;
   const row = $("card-row");
   row.innerHTML = "";
   cardEls.length = 0;
-  UNITS.forEach((u, i) => {
+
+  const specs = b ? b.roster : UNITS;
+  specs.forEach((sp, i) => {
+    const locked = b ? b.locked[i] : !isUnitUnlocked(sp);
+    const lvLabel = b && b.arena
+      ? (sp.skill ? SKILLS[sp.skill].icon : (sp.rarity ? "★".repeat(sp.rarity) : ""))
+      : (locked ? "" : `Lv${unitLevel(sp.key)}`);
+    const costLabel = locked
+      ? (b && b.arena ? "" : `ステージ${sp.unlock}クリア`)
+      : sp.cost;
     const btn = document.createElement("button");
-    const locked = !isUnitUnlocked(u);
     btn.className = "unit-card" + (locked ? " locked" : "");
     btn.innerHTML = `
-      <span class="u-lv">${locked ? "" : `Lv${unitLevel(u.key)}`}</span>
+      <span class="u-lv">${lvLabel}</span>
       <canvas></canvas>
-      <span class="u-name">${u.name}</span>
-      <span class="u-cost">${locked ? `ステージ${u.unlock}クリア` : u.cost}</span>
+      <span class="u-name">${sp.name}</span>
+      <span class="u-cost">${costLabel}</span>
       ${locked ? '<span class="u-lock">🔒</span>' : ""}
       <div class="cd-mask"></div>`;
     if (!locked) {
@@ -1621,7 +2161,7 @@ function buildCards() {
       });
     }
     row.appendChild(btn);
-    paintIcon(btn.querySelector("canvas"), u.look, u.r || 18);
+    paintIcon(btn.querySelector("canvas"), sp.look, sp.r || 18, sp.skin || null);
     cardEls.push(btn);
   });
 
@@ -1649,10 +2189,10 @@ function updateHud() {
     $("mana-up-cost").textContent = `${b.manaUpCost} マナ`;
   }
   cardEls.forEach((el, i) => {
-    const u = UNITS[i];
-    if (!isUnitUnlocked(u)) return;
-    el.classList.toggle("unaffordable", b.mana < u.cost || !!b.over);
-    el.querySelector(".cd-mask").style.height = `${(b.cardCd[i] / u.cd) * 100}%`;
+    const sp = b.roster[i];
+    if (!sp || b.locked[i]) return;
+    el.classList.toggle("unaffordable", b.mana < sp.cost || !!b.over);
+    el.querySelector(".cd-mask").style.height = `${(b.cardCd[i] / sp.cd) * 100}%`;
   });
   const skill = $("skill-btn");
   if (skill) {
@@ -1750,6 +2290,7 @@ function startBattle(stageNo) {
   game.mode = "battle";
   game.speed = 1;
   game.resultStage = stageNo;
+  game.arenaOpp = null;
   $("speed-btn").textContent = "x1";
   camera.x = 0;
   camera.manualUntil = 0;
@@ -1757,6 +2298,29 @@ function startBattle(stageNo) {
   showScreen(null);
   SFX.bgmStart();
   if (!save.tutorialDone) showTutorial(0);
+}
+
+// アリーナ開始。opp = { name, rank, entries:[{key,lb}], ranked:bool }
+function startArena(opp) {
+  ensureDeck();
+  if (save.deck.length === 0) { alert("先にデッキを編成してね"); return; }
+  game.arenaOpp = opp;
+  game.battle = new Battle(0, {
+    arena: true,
+    seed: hashStr("arena#" + Date.now() + "#" + opp.name),
+    playerSpecs: myDeckSpecs(),
+    oppSpecs: deckSpecs(opp.entries),
+    oppName: opp.name,
+    oppRank: opp.rank || 1,
+  });
+  game.mode = "battle";
+  game.speed = 1;
+  $("speed-btn").textContent = "x1";
+  camera.x = 0;
+  camera.manualUntil = 0;
+  buildCards();
+  showScreen(null);
+  SFX.bgmStart();
 }
 
 function finishBattle() {
@@ -1768,6 +2332,16 @@ function finishBattle() {
 
   const statsLine = `たたかいの記録：⏱ ${fmtTime(b.time)} ／ 💀 ${b.kills}たい撃破 ／ 召喚 ${b.summons}回`;
   let gold = 0;
+
+  if (b.arena) {
+    finishArena(b, statsLine);
+    return;
+  }
+
+  // アリーナで書き換えたラベルを通常用に戻す
+  $("result-retry-btn").style.display = "block";
+  $("result-retry-btn").textContent = "もういちど";
+  $("result-map-btn").textContent = "ステージ選択へ";
 
   if (b.endless) {
     // エンドレス：生存時間がスコア。ベスト更新を判定
@@ -1872,6 +2446,220 @@ function buildAchvList() {
   }
 }
 
+/* ============================================================
+ * 7b. ガチャ / コレクション / アリーナ の画面
+ * ============================================================ */
+let toastTimer = null;
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.add("visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("visible"), 1800);
+}
+function copyText(text, okMsg) {
+  const done = () => toast(okMsg || "コピーしました");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+  } else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand("copy"); document.body.removeChild(ta); done();
+  } catch { toast("コピーできませんでした"); }
+}
+function doShare() {
+  const url = shareURL(buildShareCode());
+  const text = `「ゆるレンジャー」で ${playerName()} のチームに挑戦してね！`;
+  if (navigator.share) navigator.share({ title: "ゆるレンジャー対戦", text, url }).catch(() => {});
+  else copyText(url, "リンクをコピーしました");
+}
+
+function renderHeroIcon(cv, key) {
+  const h = HERO_BY_KEY[key];
+  paintIcon(cv, h.look, lookRadius(h.look), h.skin || null);
+}
+function starHtml(rarity) {
+  return `<span style="color:${RARITY[rarity].color}">${"★".repeat(rarity)}</span>`;
+}
+
+/* ---- アリーナ結果 ---- */
+function finishArena(b, statsLine) {
+  const win = b.over.win;
+  const opp = game.arenaOpp || { name: b.oppName, rank: b.oppRank, ranked: false };
+  const pr = Math.ceil((b.playerTower.hp / b.playerTower.maxHp) * 100);
+  const er = Math.ceil((b.enemyTower.hp / b.enemyTower.maxHp) * 100);
+
+  let rankMsg = "";
+  if (opp.ranked) {
+    const before = save.arena.rank;
+    if (win) {
+      save.arena.wins++;
+      save.arena.pts += rankDelta(true, before, opp.rank);
+      while (save.arena.pts >= 10) { save.arena.pts -= 10; save.arena.rank++; }
+    } else {
+      save.arena.losses++;
+      save.arena.pts += rankDelta(false, before, opp.rank);
+      while (save.arena.pts < 0 && save.arena.rank > 1) { save.arena.pts += 10; save.arena.rank--; }
+      if (save.arena.pts < 0) save.arena.pts = 0;
+    }
+    rankMsg = before !== save.arena.rank
+      ? `ランク ${before !== save.arena.rank && save.arena.rank > before ? "▲" : "▼"} ${rankLabel(save.arena.rank)}`
+      : `ランクポイント ${save.arena.pts}/10（${rankLabel(save.arena.rank)}）`;
+  } else {
+    if (win) save.arena.wins++; else save.arena.losses++;
+  }
+
+  const gems = win ? 6 + Math.floor(save.arena.rank / 2) : 2;
+  const gold = win ? 70 : 20;
+  save.gems += gems; save.gold += gold;
+  persist();
+
+  $("result-title").textContent = win ? "しょうり！ 🎉" : "はいぼく…";
+  $("result-stars").textContent = win ? "🏆" : "";
+  $("result-detail").innerHTML =
+    `vs 👹 ${opp.name}（${rankLabel(opp.rank)}）<br />` +
+    `じぶんのとりで ${pr}％ ／ あいて ${er}％<br />${statsLine}<br />` +
+    (rankMsg ? `${rankMsg}<br />` : "") +
+    `かくとく：🔮 ${gems}　🪙 ${gold}`;
+  $("result-next-btn").style.display = "none";
+  $("result-retry-btn").style.display = "block";
+  $("result-retry-btn").textContent = "もういちど";
+  $("result-map-btn").textContent = "アリーナへ戻る";
+  showScreen("result-screen");
+}
+
+/* ---- ガチャ ---- */
+function openGacha() {
+  $("gacha-gems").textContent = save.gems;
+  $("gacha-gold").textContent = save.gold;
+  $("gacha-pity").textContent = `${GACHA.pity - save.pity}`;
+  $("gacha-roll1").querySelector(".sub").textContent = `🔮 ${GACHA.single}`;
+  $("gacha-roll10").querySelector(".sub").textContent = `🔮 ${GACHA.ten}`;
+  $("gacha-roll1").disabled = save.gems < GACHA.single;
+  $("gacha-roll10").disabled = save.gems < GACHA.ten;
+  $("gacha-exchange").disabled = save.gold < GACHA.exchange.gold;
+  // 排出ラインナップ（★3を見せる）
+  const feat = $("gacha-featured");
+  if (feat && !feat.dataset.built) {
+    feat.dataset.built = "1";
+    for (const h of HEROES.filter((x) => x.rarity === 3)) {
+      const chip = document.createElement("div");
+      chip.className = "feat-chip";
+      chip.innerHTML = `<canvas></canvas><span>${h.name}</span><small>${SKILLS[h.skill].icon}${SKILLS[h.skill].name}</small>`;
+      feat.appendChild(chip);
+      renderHeroIcon(chip.querySelector("canvas"), h.key);
+    }
+  }
+  showScreen("gacha-screen");
+}
+function doRoll(n) {
+  const cost = n === 10 ? GACHA.ten : GACHA.single;
+  if (save.gems < cost) { toast("ジェムが足りない"); return; }
+  save.gems -= cost;
+  const results = rollMany(n);
+  persist();
+  const best = Math.max(...results.map((r) => HERO_BY_KEY[r.key].rarity));
+  best === 3 ? SFX.victory() : best === 2 ? SFX.manaUp() : SFX.summon();
+  showGachaResults(results);
+}
+function showGachaResults(results) {
+  const grid = $("gacha-result-grid");
+  grid.innerHTML = "";
+  for (const r of results) {
+    const h = HERO_BY_KEY[r.key];
+    const cell = document.createElement("div");
+    cell.className = `pull-cell rar${h.rarity}`;
+    cell.innerHTML = `
+      <canvas></canvas>
+      <div class="pull-name">${h.name}</div>
+      <div class="pull-stars">${starHtml(h.rarity)}</div>
+      <div class="pull-tag">${r.isNew ? "NEW!" : `限界突破+${r.lb}`}</div>
+      ${h.skill ? `<div class="pull-skill">${SKILLS[h.skill].icon}</div>` : ""}`;
+    grid.appendChild(cell);
+    renderHeroIcon(cell.querySelector("canvas"), h.key);
+  }
+  $("gacha-result").classList.add("visible");
+}
+
+/* ---- コレクション（デッキ編成）---- */
+function openCollection() {
+  ensureDeck();
+  $("collection-gems").textContent = save.gems;
+  renderDeckStrip();
+  const grid = $("collection-grid");
+  grid.innerHTML = "";
+  // レア度の高い順 → ロール順で並べる
+  const sorted = [...HEROES].sort((a, b) => b.rarity - a.rarity || HERO_KEYS.indexOf(a.key) - HERO_KEYS.indexOf(b.key));
+  for (const h of sorted) {
+    const owned = isHeroOwned(h.key);
+    const inDeck = save.deck.includes(h.key);
+    const lb = heroLb(h.key);
+    const cell = document.createElement("button");
+    cell.className = "hero-cell rar" + h.rarity + (owned ? "" : " locked") + (inDeck ? " indeck" : "");
+    cell.innerHTML = `
+      <div class="hc-star">${owned ? starHtml(h.rarity) : "🔒"}</div>
+      <canvas></canvas>
+      <div class="hc-name">${owned ? h.name : "？？？"}</div>
+      <div class="hc-meta">${owned ? `⚔${heroPower(h.key, lb)}${lb ? ` +${lb}` : ""}` : `${RARITY[h.rarity].name}`}</div>
+      ${owned && h.skill ? `<div class="hc-skill">${SKILLS[h.skill].icon}</div>` : ""}
+      ${inDeck ? '<div class="hc-in">✓</div>' : ""}`;
+    if (owned) {
+      cell.addEventListener("click", () => {
+        SFX.tap();
+        if (save.deck.includes(h.key)) { save.deck = save.deck.filter((k) => k !== h.key); }
+        else if (save.deck.length >= DECK_SIZE) { toast("デッキは6体まで"); return; }
+        else save.deck.push(h.key);
+        persist();
+        openCollection();
+      });
+    }
+    grid.appendChild(cell);
+    if (owned) renderHeroIcon(cell.querySelector("canvas"), h.key);
+    else cell.querySelector("canvas").style.opacity = "0.15";
+  }
+}
+function renderDeckStrip(containerId = "collection-deck") {
+  const strip = $(containerId);
+  strip.innerHTML = "";
+  for (let i = 0; i < DECK_SIZE; i++) {
+    const key = save.deck[i];
+    const slot = document.createElement(key ? "button" : "div");
+    slot.className = "deck-slot" + (key ? "" : " empty");
+    if (key) {
+      const h = HERO_BY_KEY[key];
+      slot.innerHTML = `<canvas></canvas><span>${h.name}</span>`;
+      slot.addEventListener("click", () => {
+        SFX.tap();
+        save.deck = save.deck.filter((k) => k !== key);
+        persist();
+        if ($("collection-screen").classList.contains("visible")) openCollection();
+        else openArena();
+      });
+    } else {
+      slot.innerHTML = `<span class="plus">＋</span>`;
+    }
+    strip.appendChild(slot);
+    if (key) renderHeroIcon(slot.querySelector("canvas"), key);
+  }
+}
+
+/* ---- アリーナ ロビー ---- */
+function openArena() {
+  ensureDeck();
+  game.mode = "menu";
+  $("arena-rank").textContent = rankLabel(save.arena.rank);
+  $("arena-record").textContent = `${save.arena.wins}勝 ${save.arena.losses}敗`;
+  $("name-input").value = save.playerName || "";
+  $("arena-mycode").value = buildShareCode();
+  renderDeckStrip("arena-deck");
+  $("arena-deck-power").textContent = myDeckSpecs().reduce((s, sp) => s + heroPower(sp.key, 0), 0);
+  showScreen("arena-screen");
+}
+
 /* ---- ボタン類 ---- */
 function wireUi() {
   const tap = (id, fn) => $(id).addEventListener("click", () => { SFX.unlock(); SFX.tap(); fn(); });
@@ -1916,24 +2704,62 @@ function wireUi() {
     SFX.bgmStart();
   });
   tap("giveup-btn", () => {
+    const wasArena = !!(game.battle && game.battle.arena);
     game.battle = null;
     game.mode = "menu";
     SFX.bgmStop();
-    buildStageGrid();
-    showScreen("select-screen");
+    if (wasArena) { openArena(); }
+    else { buildStageGrid(); showScreen("select-screen"); }
   });
   tap("speed-btn", () => {
     game.speed = game.speed === 1 ? 2 : 1;
     $("speed-btn").textContent = `x${game.speed}`;
   });
 
-  tap("result-retry-btn", () => startBattle(game.resultStage));
-  tap("result-next-btn", () => startBattle(Math.min(STAGE_COUNT, game.resultStage + 1)));
+  tap("result-retry-btn", () => {
+    if (game.arenaOpp) startArena(game.arenaOpp);
+    else startBattle(game.resultStage);
+  });
+  tap("result-next-btn", () => {
+    if (game.arenaOpp) openArena();
+    else startBattle(Math.min(STAGE_COUNT, game.resultStage + 1));
+  });
   tap("result-map-btn", () => {
     game.battle = null;
     game.mode = "menu";
-    buildStageGrid();
-    showScreen("select-screen");
+    if (game.arenaOpp) { openArena(); }
+    else { buildStageGrid(); showScreen("select-screen"); }
+  });
+
+  // --- ガチャ / コレクション / アリーナ 入口 ---
+  tap("gacha-btn", () => { save.gachaSeen = true; persist(); openGacha(); });
+  tap("collection-btn", () => openCollection());
+  tap("arena-btn", () => openArena());
+  tap("gacha-back-btn", () => showScreen("title-screen"));
+  tap("collection-back-btn", () => showScreen("title-screen"));
+  tap("arena-back-btn", () => showScreen("title-screen"));
+  tap("gacha-roll1", () => doRoll(1));
+  tap("gacha-roll10", () => doRoll(10));
+  tap("gacha-exchange", () => {
+    if (save.gold < GACHA.exchange.gold) { toast("ゴールドが足りない"); return; }
+    save.gold -= GACHA.exchange.gold; save.gems += GACHA.exchange.gems; persist();
+    SFX.manaUp(); openGacha();
+  });
+  $("gacha-result-close").addEventListener("click", () => { SFX.tap(); $("gacha-result").classList.remove("visible"); openGacha(); });
+  tap("arena-ranked-btn", () => startArena(Object.assign(rivalDeck(save.arena.rank), { ranked: true })));
+  tap("arena-challenge-btn", () => {
+    const code = ($("arena-code-input").value || "").trim();
+    const opp = parseShareCode(code);
+    if (!opp) { toast("コードが正しくないみたい"); return; }
+    startArena({ name: opp.name, rank: opp.rank, entries: opp.entries });
+  });
+  tap("arena-copy-code", () => copyText(buildShareCode(), "コードをコピーしました"));
+  tap("arena-copy-link", () => copyText(shareURL(buildShareCode()), "リンクをコピーしました"));
+  tap("arena-share", () => doShare());
+  $("name-input").addEventListener("change", () => {
+    save.playerName = ($("name-input").value || "").slice(0, 12);
+    persist();
+    $("arena-mycode").value = buildShareCode();
   });
 
   $("mana-up").addEventListener("click", () => {
@@ -2031,8 +2857,23 @@ function frame(ts) {
   }
 }
 
+// 共有リンク（#vs=コード）で開かれたら、その相手への挑戦をうながす
+function handleChallengeLink() {
+  try {
+    const m = (location.hash || "").match(/vs=([^&]+)/);
+    if (!m) return;
+    const opp = parseShareCode(decodeURIComponent(m[1]));
+    history.replaceState(null, "", location.pathname + location.search);
+    if (!opp) { toast("対戦コードを読み取れませんでした"); return; }
+    openArena();
+    $("arena-code-input").value = decodeURIComponent(m[1]);
+    toast(`👹 ${opp.name} のチームが待っている！`);
+  } catch { /* noop */ }
+}
+
 resizeCanvas();
 wireUi();
 buildCards();
 showScreen("title-screen");
+handleChallengeLink();
 requestAnimationFrame(frame);
