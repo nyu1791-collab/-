@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#6366f1" />
+  <title>つづける — 習慣化アプリ</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header__title">
+        <h1>つづける</h1>
+        <p class="header__date" id="todayLabel"></p>
+      </div>
+      <button class="btn btn--icon" id="themeToggle" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
+    </header>
+
+    <section class="summary" id="summary" aria-live="polite"></section>
+
+    <main>
+      <ul class="habit-list" id="habitList"></ul>
+      <p class="empty" id="emptyState" hidden>
+        まだ習慣がありません。<br />下のフォームから最初の習慣を追加しましょう。
+      </p>
+    </main>
+
+    <form class="add-form" id="addForm" autocomplete="off">
+      <input
+        class="add-form__input"
+        id="habitInput"
+        type="text"
+        maxlength="40"
+        placeholder="新しい習慣（例：朝に水を飲む）"
+        aria-label="新しい習慣"
+        required
+      />
+      <button class="btn btn--primary" type="submit">追加</button>
+    </form>
+
+    <footer class="footer">
+      <p>データはこのブラウザ内にのみ保存されます。</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
