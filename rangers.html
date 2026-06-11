@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#2b1d4f" />
+  <title>ゆるレンジャー — みんなで進撃ディフェンス</title>
+  <meta name="description" content="ゆるかわユニットを召喚して敵のとりでを撃破！横スクロール型ディフェンスゲーム。" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <style>
+    :root {
+      --hud-h: 118px;
+      --panel: #2b1d4f;
+      --panel-2: #3a2a68;
+      --panel-3: #4c3a85;
+      --accent: #ffd54a;
+      --accent-2: #7ce7a2;
+      --danger: #ff6b81;
+      --text: #fdf8ff;
+      --muted: #b9aee0;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overscroll-behavior: none; }
+    body {
+      font-family: "Hiragino Maru Gothic ProN", "BIZ UDGothic", "Yu Gothic", system-ui, sans-serif;
+      background: #1a1133;
+      color: var(--text);
+      overflow: hidden;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    button { font-family: inherit; color: inherit; border: none; background: none; cursor: pointer; }
+
+    #stage-wrap {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+    }
+    #field-wrap { position: relative; flex: 1; min-height: 0; }
+    #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+    /* ===== 戦闘中の上部ボタン ===== */
+    #battle-top {
+      position: absolute; top: calc(8px + env(safe-area-inset-top)); right: 10px;
+      display: none; gap: 8px; z-index: 5;
+    }
+    #battle-top button {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: rgba(26, 17, 51, 0.72); color: var(--text);
+      font-size: 18px; font-weight: 700;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(4px);
+    }
+    #battle-top button:active { transform: scale(0.93); }
+
+    /* ===== 戦闘HUD（下部） ===== */
+    #hud {
+      display: none; flex-direction: column; gap: 6px;
+      padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, var(--panel) 0%, #221542 100%);
+      border-top: 3px solid var(--panel-3);
+      z-index: 6;
+    }
+    #mana-row { display: flex; align-items: center; gap: 8px; }
+    #mana-bar {
+      flex: 1; height: 22px; border-radius: 11px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      position: relative; overflow: hidden;
+    }
+    #mana-fill {
+      position: absolute; inset: 0; width: 0%;
+      background: linear-gradient(90deg, #4cc3ff, #7ce7ff);
+      border-radius: 9px;
+      transition: width 80ms linear;
+    }
+    #mana-text {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; color: #fff;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    }
+    #mana-up {
+      height: 34px; padding: 0 12px; border-radius: 10px;
+      background: linear-gradient(180deg, #5e48a8, #43307f);
+      border: 2px solid #7c64c9;
+      font-size: 12px; font-weight: 800; white-space: nowrap;
+    }
+    #mana-up:disabled { opacity: 0.45; }
+    #mana-up:not(:disabled):active { transform: scale(0.95); }
+
+    #card-row { display: flex; gap: 8px; align-items: stretch; }
+    .unit-card {
+      position: relative; flex: 1; min-width: 0;
+      border-radius: 12px; overflow: hidden;
+      background: linear-gradient(180deg, #46357c, #332459);
+      border: 2px solid #6a55b5;
+      padding: 4px 2px 3px;
+      display: flex; flex-direction: column; align-items: center; gap: 1px;
+      transition: filter 120ms;
+    }
+    .unit-card canvas { width: 42px; height: 42px; display: block; }
+    .unit-card .u-name { font-size: 10px; font-weight: 700; color: var(--muted); line-height: 1; }
+    .unit-card .u-cost {
+      font-size: 12px; font-weight: 900; color: var(--accent); line-height: 1.2;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.5);
+    }
+    .unit-card .cd-mask {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+      background: rgba(10, 5, 25, 0.7); pointer-events: none;
+    }
+    .unit-card.unaffordable { filter: grayscale(0.85) brightness(0.7); }
+    .unit-card:active:not(.unaffordable) { transform: scale(0.94); }
+    .unit-card .u-lv {
+      position: absolute; top: 2px; left: 4px;
+      font-size: 9px; font-weight: 800; color: #cdeaff;
+      text-shadow: 0 1px 1px rgba(0,0,0,0.7);
+    }
+    .unit-card.locked { filter: grayscale(1) brightness(0.5); }
+    .unit-card.locked .u-cost { color: var(--muted); font-size: 9px; }
+    .unit-card .u-lock {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%);
+      font-size: 20px; pointer-events: none;
+    }
+    #skill-btn {
+      width: 64px; border-radius: 12px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, #b3471d, #7d2c12);
+      border: 2px solid #ff9d5c;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      font-weight: 900;
+    }
+    #skill-btn .s-icon { font-size: 22px; line-height: 1; }
+    #skill-btn .s-label { font-size: 10px; }
+    #skill-btn .cd-mask {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+      background: rgba(10, 5, 25, 0.75); pointer-events: none;
+    }
+    #skill-btn:disabled { filter: grayscale(0.6) brightness(0.75); }
+    #skill-btn:not(:disabled):active { transform: scale(0.94); }
+
+    /* ===== オーバーレイ画面共通 ===== */
+    .screen {
+      position: absolute; inset: 0; z-index: 10;
+      display: none; flex-direction: column; align-items: center;
+      overflow-y: auto;
+      padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+      background: radial-gradient(120% 90% at 50% 0%, #43307f 0%, #241749 55%, #160e2e 100%);
+    }
+    .screen.visible { display: flex; }
+    .screen h1 { font-size: 38px; letter-spacing: 2px; text-shadow: 0 3px 0 #160e2e; }
+    .screen h2 { font-size: 20px; margin-bottom: 12px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin: 6px 0 22px; }
+
+    .big-btn {
+      display: block; width: min(320px, 86vw);
+      padding: 14px; margin: 8px 0; border-radius: 16px;
+      font-size: 17px; font-weight: 900; color: #3c2800;
+      background: linear-gradient(180deg, #ffe082, #ffc233);
+      border: 3px solid #fff3c2;
+      box-shadow: 0 4px 0 #a87b12;
+    }
+    .big-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #a87b12; }
+    .big-btn.secondary {
+      color: var(--text);
+      background: linear-gradient(180deg, #5e48a8, #43307f);
+      border-color: #8a73d4; box-shadow: 0 4px 0 #2a1c55;
+    }
+
+    #title-canvas { width: min(340px, 88vw); height: 170px; margin: 6px 0 4px; }
+
+    /* ===== ステージ選択 ===== */
+    .gold-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 999px; padding: 5px 14px;
+      font-weight: 900; color: var(--accent); font-size: 14px;
+      margin-bottom: 14px;
+    }
+    #stage-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 10px; width: min(420px, 92vw); margin-bottom: 18px;
+    }
+    .stage-node {
+      aspect-ratio: 1; border-radius: 14px;
+      background: linear-gradient(180deg, #46357c, #332459);
+      border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      font-weight: 900;
+    }
+    .stage-node .n { font-size: 20px; }
+    .stage-node .stars { font-size: 10px; letter-spacing: 1px; color: var(--accent); }
+    .stage-node .boss-mark { font-size: 10px; color: var(--danger); }
+    .stage-node.locked { filter: grayscale(0.9) brightness(0.55); }
+    .stage-node:not(.locked):active { transform: scale(0.94); }
+    .stage-node.endless {
+      grid-column: 1 / -1; aspect-ratio: auto; padding: 12px;
+      background: linear-gradient(180deg, #6a2a7c, #44195a);
+      border-color: #b677dd;
+    }
+    .stage-node.endless .n { font-size: 16px; }
+    .stage-node.endless .best { font-size: 11px; color: var(--muted); }
+
+    /* ===== 編成・強化 ===== */
+    #upgrade-list { width: min(440px, 94vw); display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .up-row {
+      display: flex; align-items: center; gap: 10px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 14px; padding: 8px 10px;
+    }
+    .up-row canvas { width: 48px; height: 48px; flex: none; }
+    .up-info { flex: 1; min-width: 0; }
+    .up-info .nm { font-weight: 900; font-size: 14px; }
+    .up-info .desc { font-size: 11px; color: var(--muted); }
+    .up-info .st { font-size: 11px; color: #cdeaff; margin-top: 2px; }
+    .up-btn {
+      flex: none; padding: 8px 10px; border-radius: 10px;
+      background: linear-gradient(180deg, #ffe082, #ffc233);
+      color: #3c2800; font-weight: 900; font-size: 12px;
+      border: 2px solid #fff3c2; min-width: 86px; text-align: center;
+    }
+    .up-btn:disabled { filter: grayscale(0.8) brightness(0.7); }
+    .up-btn:not(:disabled):active { transform: scale(0.95); }
+
+    /* ===== 実績 ===== */
+    #achv-summary { color: var(--muted); font-size: 12px; margin-bottom: 12px; text-align: center; line-height: 1.7; }
+    #achv-list { width: min(440px, 94vw); display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .achv-row {
+      display: flex; align-items: center; gap: 12px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 14px; padding: 10px 14px;
+    }
+    .achv-row.done { border-color: var(--accent); }
+    .achv-row .a-icon { font-size: 24px; flex: none; }
+    .achv-row .a-info { flex: 1; }
+    .achv-row .a-name { font-weight: 900; font-size: 14px; }
+    .achv-row .a-desc { font-size: 11px; color: var(--muted); }
+    .achv-row .a-state { flex: none; font-size: 18px; }
+    .achv-row:not(.done) { opacity: 0.6; }
+
+    /* ===== チュートリアル ===== */
+    #tutorial-overlay {
+      position: absolute; inset: 0; z-index: 20; display: none;
+      background: rgba(13, 7, 30, 0.55);
+      align-items: flex-end; justify-content: center;
+      padding-bottom: 18px;
+    }
+    #tutorial-overlay.visible { display: flex; }
+    #tutorial-box {
+      width: min(420px, 92vw);
+      background: #fffdf5; color: #3b2d55;
+      border-radius: 16px; border: 3px solid var(--accent);
+      padding: 14px 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    #tutorial-box .t-who { font-weight: 900; font-size: 12px; color: #8a6d1f; margin-bottom: 4px; }
+    #tutorial-box .t-text { font-size: 14px; line-height: 1.7; min-height: 3.4em; }
+    #tutorial-box .t-next { text-align: right; font-size: 12px; color: #8a6d1f; font-weight: 800; margin-top: 6px; animation: blinkNext 1.2s infinite; }
+    @keyframes blinkNext { 50% { opacity: 0.3; } }
+
+    /* ===== リザルト ===== */
+    #result-screen { justify-content: center; background: rgba(13, 7, 30, 0.88); backdrop-filter: blur(3px); }
+    #result-title { font-size: 34px; margin-bottom: 4px; }
+    #result-stars { font-size: 38px; letter-spacing: 6px; margin: 8px 0; }
+    #result-detail { color: var(--muted); font-size: 14px; margin-bottom: 18px; text-align: center; line-height: 1.7; }
+
+    /* ===== ポーズ ===== */
+    #pause-screen { justify-content: center; background: rgba(13, 7, 30, 0.82); }
+
+    .back-link { margin-top: auto; padding-top: 18px; }
+    .back-link a { color: var(--muted); font-size: 12px; }
+
+    @media (max-height: 480px) {
+      :root { --hud-h: 96px; }
+      .unit-card canvas { width: 32px; height: 32px; }
+      .screen h1 { font-size: 28px; }
+      #title-canvas { height: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage-wrap">
+    <div id="field-wrap">
+      <canvas id="field"></canvas>
+
+      <div id="battle-top">
+        <button id="speed-btn" aria-label="ゲーム速度切り替え">x1</button>
+        <button id="pause-btn" aria-label="ポーズ">II</button>
+      </div>
+
+      <!-- タイトル -->
+      <section class="screen visible" id="title-screen">
+        <h1>ゆるレンジャー</h1>
+        <p class="subtitle">ゆるかわ部隊を召喚して、敵のとりでを撃破せよ！</p>
+        <canvas id="title-canvas" width="680" height="340"></canvas>
+        <button class="big-btn" id="start-btn">ぼうけんに出発！</button>
+        <button class="big-btn secondary" id="title-upgrade-btn">部隊の強化</button>
+        <button class="big-btn secondary" id="achv-btn">🏅 実績ずかん</button>
+        <button class="big-btn secondary" id="sound-btn">🔊 効果音：オン</button>
+        <button class="big-btn secondary" id="bgm-btn">🎵 BGM：オン</button>
+        <p class="back-link"><a href="index.html">← つづける（習慣化アプリ）へ戻る</a></p>
+      </section>
+
+      <!-- ステージ選択 -->
+      <section class="screen" id="select-screen">
+        <h2>🗺️ ステージをえらぶ</h2>
+        <div class="gold-chip">🪙 <span id="gold-label">0</span> G</div>
+        <div id="stage-grid"></div>
+        <button class="big-btn secondary" id="select-upgrade-btn">部隊の強化</button>
+        <button class="big-btn secondary" id="select-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- 強化 -->
+      <section class="screen" id="upgrade-screen">
+        <h2>⚒️ 部隊の強化</h2>
+        <div class="gold-chip">🪙 <span id="upgrade-gold-label">0</span> G</div>
+        <div id="upgrade-list"></div>
+        <button class="big-btn secondary" id="upgrade-back-btn">もどる</button>
+      </section>
+
+      <!-- 実績 -->
+      <section class="screen" id="achv-screen">
+        <h2>🏅 実績ずかん</h2>
+        <p id="achv-summary"></p>
+        <div id="achv-list"></div>
+        <button class="big-btn secondary" id="achv-back-btn">もどる</button>
+      </section>
+
+      <!-- チュートリアル -->
+      <div id="tutorial-overlay">
+        <div id="tutorial-box">
+          <div class="t-who">たいちょう みけ</div>
+          <div class="t-text" id="tutorial-text"></div>
+          <div class="t-next">タップしてつぎへ ▶</div>
+        </div>
+      </div>
+
+      <!-- リザルト -->
+      <section class="screen" id="result-screen">
+        <h1 id="result-title">クリア！</h1>
+        <div id="result-stars"></div>
+        <p id="result-detail"></p>
+        <button class="big-btn" id="result-next-btn">つぎのステージへ</button>
+        <button class="big-btn secondary" id="result-retry-btn">もういちど</button>
+        <button class="big-btn secondary" id="result-map-btn">ステージ選択へ</button>
+      </section>
+
+      <!-- ポーズ -->
+      <section class="screen" id="pause-screen">
+        <h1>ポーズ中</h1>
+        <button class="big-btn" id="resume-btn">たたかいに戻る</button>
+        <button class="big-btn secondary" id="giveup-btn">あきらめてステージ選択へ</button>
+      </section>
+    </div>
+
+    <!-- 戦闘HUD -->
+    <div id="hud">
+      <div id="mana-row">
+        <div id="mana-bar">
+          <div id="mana-fill"></div>
+          <div id="mana-text">0 / 0</div>
+        </div>
+        <button id="mana-up">⚡ マナ強化<br /><span id="mana-up-cost"></span></button>
+      </div>
+      <div id="card-row"></div>
+    </div>
+  </div>
+
+  <script src="rangers.js"></script>
+</body>
+</html>
