@@ -152,5 +152,10 @@
       ${bubble}`;
   }
 
-  window.Mascot = { STAGES, stageFor, computeState, render };
+  /** SVGマークアップ文字列だけを返す（モックアップ等で埋め込み用） */
+  function art(stage, mood) {
+    return svg(stage, mood);
+  }
+
+  window.Mascot = { STAGES, stageFor, computeState, render, art };
 })();

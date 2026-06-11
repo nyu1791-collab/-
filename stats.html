@@ -45,6 +45,17 @@
     <h2 class="section-title">習慣ごとの記録</h2>
     <section class="perhabit" id="perHabit"></section>
 
+    <h2 class="section-title">データのバックアップ</h2>
+    <section class="backup">
+      <p class="backup__lead">記録をファイルに書き出して保存・別の端末へ移行できます。データはこの端末内だけにあります。</p>
+      <div class="backup__actions">
+        <button class="btn btn--ghost" id="exportBtn">⬇️ エクスポート</button>
+        <button class="btn btn--ghost" id="importBtn">⬆️ インポート</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden />
+      </div>
+      <p class="settings__hint" id="backupHint"></p>
+    </section>
+
     <div class="cta">
       <button class="btn btn--ghost" id="shareBtn">📣 統計をシェア</button>
     </div>
@@ -56,6 +67,7 @@
 
   <script src="fun.js"></script>
   <script src="mascot.js"></script>
+  <script src="backup.js"></script>
   <script src="stats.js"></script>
 </body>
 </html>

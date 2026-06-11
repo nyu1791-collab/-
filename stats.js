@@ -324,6 +324,45 @@
       });
   }
 
+  // ---- データのバックアップ -------------------------------------------------
+
+  if (typeof window.Backup !== "undefined") {
+    const exportBtn = document.getElementById("exportBtn");
+    const importBtn = document.getElementById("importBtn");
+    const importFile = document.getElementById("importFile");
+    const hint = document.getElementById("backupHint");
+
+    if (exportBtn) {
+      exportBtn.addEventListener("click", () => {
+        Backup.download();
+        if (hint) hint.textContent = "バックアップファイルを書き出しました。";
+      });
+    }
+    if (importBtn && importFile) {
+      importBtn.addEventListener("click", () => importFile.click());
+      importFile.addEventListener("change", async () => {
+        const file = importFile.files && importFile.files[0];
+        if (!file) return;
+        if (!confirm("読み込むと現在のデータは置き換えられます。よろしいですか？")) {
+          importFile.value = "";
+          return;
+        }
+        try {
+          const sum = await Backup.importFile(file, { mode: "replace" });
+          if (hint)
+            hint.textContent = `復元しました（習慣 ${sum.habits}件・朝の記録 ${sum.mornings}日）。再読み込みします…`;
+          if (hasFun) Fun.toast("データを復元しました", { icon: "✅" });
+          setTimeout(() => location.reload(), 900);
+        } catch (e) {
+          if (hint) hint.textContent = "読み込み失敗：" + e.message;
+          if (hasFun) Fun.toast("インポートに失敗しました", { icon: "⚠️" });
+        } finally {
+          importFile.value = "";
+        }
+      });
+    }
+  }
+
   // ---- 起動 -----------------------------------------------------------------
 
   renderTodayLabel();

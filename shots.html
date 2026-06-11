@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>スクショ撮影スタジオ — つづける</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    body { background: var(--surface-2); }
+    .studio { max-width: 1240px; margin: 0 auto; padding: 16px; }
+    .studio__bar {
+      position: sticky; top: 0; z-index: 5; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow);
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 16px;
+    }
+    .studio__bar h1 { font-size: 1.05rem; margin-right: auto; }
+    .studio__hint { width: 100%; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6; }
+    .shots { display: flex; flex-wrap: wrap; gap: 22px; justify-content: center; }
+
+    /* 1枚 = 540×1170（撮影時に2倍DPRで 1080×2340 相当のストア画像に） */
+    .shot {
+      width: 540px; height: 1170px; border-radius: 36px; overflow: hidden;
+      display: flex; flex-direction: column; align-items: center;
+      color: #fff; position: relative; box-shadow: 0 24px 60px rgba(20,22,40,0.25);
+    }
+    .shot--a { background: linear-gradient(165deg, #6366f1, #8b5cf6); }
+    .shot--b { background: linear-gradient(165deg, #f59e0b, #ef4444); }
+    .shot--c { background: linear-gradient(165deg, #0ea5e9, #6366f1); }
+    .shot--d { background: linear-gradient(165deg, #22c55e, #0ea5e9); }
+    .shot__cap { padding: 54px 40px 10px; text-align: center; }
+    .shot__cap h2 { font-size: 2.1rem; font-weight: 900; line-height: 1.25; letter-spacing: 0.01em; }
+    .shot__cap p { font-size: 1.05rem; opacity: 0.92; margin-top: 10px; }
+    .shot__phone { margin-top: auto; margin-bottom: 60px; transform: scale(1.55); transform-origin: bottom center; }
+    .shot__badge {
+      position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
+      font-size: 0.9rem; font-weight: 700; opacity: 0.9; display: flex; align-items: center; gap: 6px;
+    }
+    .shot__badge img { width: 22px; height: 22px; border-radius: 6px; }
+
+    /* 大きなマスコットだけのシーン */
+    .shot__hero-mascot { width: 360px; margin-top: 70px; }
+    .shot__hero-mascot .mascot__svg { width: 360px; }
+    .shot__stages { display: flex; gap: 14px; margin-top: 24px; opacity: 0.95; }
+    .shot__stages .mascot__svg { width: 64px; flex: none; }
+  </style>
+</head>
+<body>
+  <div class="studio">
+    <div class="studio__bar">
+      <h1>📸 スクショ撮影スタジオ</h1>
+      <a class="btn btn--ghost" href="index.html">アプリへ</a>
+      <button class="btn btn--ghost" id="themeToggle">🌙 テーマ</button>
+      <p class="studio__hint">
+        各パネルは <strong>540×1170</strong>（縦長 9:19.5）。ブラウザのデバイスツールバーを <strong>2倍 (DPR)</strong> にして
+        各パネルを撮影すると <strong>1080×2340</strong> 相当のストア用スクリーンショットになります。
+        DevTools の「ノードのスクリーンショットをキャプチャ」や OS の範囲撮影が便利です。
+      </p>
+    </div>
+
+    <div class="shots">
+      <section class="shot shot--a">
+        <div class="shot__cap"><h2>毎日を、<br>ワンタップで記録</h2><p>続けるほど連続記録がのびていく</p></div>
+        <div class="phone shot__phone"><div class="phone__screen" id="sHome"></div></div>
+        <div class="shot__badge"><img src="icons/icon-192.png" alt="" />つづける</div>
+      </section>
+
+      <section class="shot shot--b">
+        <div class="shot__cap"><h2>寝坊したら、<br>課金。</h2><p>遅刻1分ごとにペナルティが加算</p></div>
+        <div class="phone shot__phone"><div class="phone__screen" id="sMorning"></div></div>
+        <div class="shot__badge"><img src="icons/icon-192.png" alt="" />つづける</div>
+      </section>
+
+      <section class="shot shot--c">
+        <div class="shot__cap"><h2>続けるほど育つ、<br>相棒「ひだまり」</h2><p>たまごから太陽神まで7段階に成長</p></div>
+        <div class="shot__hero-mascot" id="sMascot"></div>
+        <div class="shot__stages" id="sStages"></div>
+        <div class="shot__badge"><img src="icons/icon-192.png" alt="" />つづける</div>
+      </section>
+
+      <section class="shot shot--d">
+        <div class="shot__cap"><h2>がんばりは、<br>数字で見える</h2><p>最長記録・守ったお金・達成率を可視化</p></div>
+        <div class="phone shot__phone"><div class="phone__screen" id="sStats"></div></div>
+        <div class="shot__badge"><img src="icons/icon-192.png" alt="" />つづける</div>
+      </section>
+    </div>
+  </div>
+
+  <script src="mascot.js"></script>
+  <script src="mockups.js"></script>
+  <script>
+    (function () {
+      var saved = localStorage.getItem("tsuzukeru.theme");
+      if (saved) document.documentElement.setAttribute("data-theme", saved);
+    })();
+    document.getElementById("themeToggle").addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("tsuzukeru.theme", next);
+    });
+    if (window.Mockups) {
+      document.getElementById("sHome").innerHTML = Mockups.home();
+      document.getElementById("sMorning").innerHTML = Mockups.morning();
+      document.getElementById("sStats").innerHTML = Mockups.stats();
+    }
+    if (window.Mascot) {
+      document.getElementById("sMascot").innerHTML = Mascot.art(Mascot.STAGES[5], "happy");
+      var stages = [0, 2, 3, 4, 6];
+      document.getElementById("sStages").innerHTML = stages
+        .map(function (i) { return Mascot.art(Mascot.STAGES[i], "content"); })
+        .join("");
+    }
+  </script>
+</body>
+</html>

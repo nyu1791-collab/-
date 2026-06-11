@@ -1,13 +1,14 @@
 /* つづける — Service Worker
  * オフライン動作のための簡易キャッシュ。バージョンを上げると更新が反映される。
  */
-const CACHE = "tsuzukeru-v3";
+const CACHE = "tsuzukeru-v4";
 const ASSETS = [
   "./",
   "./index.html",
   "./morning.html",
   "./stats.html",
   "./landing.html",
+  "./shots.html",
   "./styles.css",
   "./app.js",
   "./morning.js",
@@ -15,9 +16,12 @@ const ASSETS = [
   "./fun.js",
   "./mascot.js",
   "./reminders.js",
+  "./backup.js",
+  "./mockups.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./icons/og.png",
 ];
 
 self.addEventListener("install", (e) => {
