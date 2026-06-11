@@ -192,7 +192,9 @@
   const soundToggleEl = document.getElementById("soundToggle");
   const installBtnEl = document.getElementById("installBtn");
   const shareBtnEl = document.getElementById("shareBtn");
+  const mascotEl = document.getElementById("mascot");
   const hasFun = typeof window.Fun !== "undefined";
+  const hasMascot = typeof window.Mascot !== "undefined";
 
   // ---- 寝ぼけ防止チャレンジ -------------------------------------------------
 
@@ -249,6 +251,7 @@
 
   function celebrateWake(amount, late, beforeLevel) {
     if (!hasFun) return;
+    Fun.vibrate(amount === 0 ? [10, 40, 10] : 20);
     if (amount === 0) {
       Fun.Sound.success();
       Fun.confetti({ count: 160, colors: ["#f59e0b", "#fde047", "#22c55e", "#6366f1"] });
@@ -437,8 +440,22 @@
     payUrlEl.value = state.config.payUrl;
   }
 
+  function renderMascot() {
+    if (!hasMascot || !mascotEl) return;
+    const info = todayInfo();
+    let mood;
+    if (info.kind === "done") mood = info.amount === 0 ? "proud" : "sad";
+    else if (info.kind === "active" && info.late > 0) mood = "sad";
+    else mood = "sleepy";
+    // 最長ストリーク的な指標として「達成日数」で成長させる
+    const bestStreak = doneCount();
+    const state = Mascot.computeState({ bestStreak, mood, totalHabits: 1, doneToday: 0 });
+    Mascot.render(mascotEl, state);
+  }
+
   function render() {
     renderTodayLabel();
+    renderMascot();
     renderStatus();
     renderWake();
     renderBalance();

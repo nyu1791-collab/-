@@ -81,12 +81,20 @@
   const todayLabelEl = document.getElementById("todayLabel");
   const themeToggleEl = document.getElementById("themeToggle");
   const levelbarEl = document.getElementById("levelbar");
+  const mascotEl = document.getElementById("mascot");
+  const heatmapEl = document.getElementById("heatmap");
   const soundToggleEl = document.getElementById("soundToggle");
   const installBtnEl = document.getElementById("installBtn");
   const shareBtnEl = document.getElementById("shareBtn");
 
   const MILESTONES = [3, 7, 14, 30, 50, 100, 200, 365];
+  const ONBOARD_KEY = "tsuzukeru.onboarded";
+  const MORNING_KEY = "tsuzukeru.morning.v2";
   const hasFun = typeof window.Fun !== "undefined";
+  const hasMascot = typeof window.Mascot !== "undefined";
+
+  // ヒートマップで表示中の月（0=今月、-1=先月…）
+  let monthOffset = 0;
 
   // ---- 描画 -----------------------------------------------------------------
 
@@ -133,6 +141,67 @@
       .join("");
   }
 
+  function renderMascot() {
+    if (!hasMascot || !mascotEl) return;
+    const todayK = dateKey(new Date());
+    const doneToday = habits.filter((h) => h.log[todayK]).length;
+    const bestStreak = habits.reduce((m, h) => Math.max(m, currentStreak(h)), 0);
+    const state = Mascot.computeState({
+      bestStreak,
+      doneToday,
+      totalHabits: habits.length,
+    });
+    Mascot.render(mascotEl, state);
+  }
+
+  /** 全習慣を通した、その日の達成割合(0..1)。習慣ゼロなら0 */
+  function dayRatio(k) {
+    if (!habits.length) return 0;
+    const done = habits.filter((h) => h.log[k]).length;
+    return done / habits.length;
+  }
+
+  function renderHeatmap() {
+    if (!heatmapEl) return;
+    if (!habits.length) {
+      heatmapEl.innerHTML = "";
+      return;
+    }
+    const base = new Date();
+    base.setDate(1);
+    base.setMonth(base.getMonth() + monthOffset);
+    const year = base.getFullYear();
+    const month = base.getMonth();
+    const first = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const startWeekday = first.getDay(); // 0=日
+    const todayK = dateKey(new Date());
+
+    let cells = "";
+    for (let i = 0; i < startWeekday; i++) cells += `<div class="heatmap__cell is-empty"></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const k = dateKey(new Date(year, month, d));
+      const ratio = dayRatio(k);
+      let lvl = 0;
+      if (ratio > 0) lvl = ratio >= 1 ? 4 : ratio >= 0.66 ? 3 : ratio >= 0.34 ? 2 : 1;
+      const today = k === todayK ? " is-today" : "";
+      cells += `<div class="heatmap__cell lvl-${lvl}${today}" title="${k}：${Math.round(ratio * 100)}%"><span>${d}</span></div>`;
+    }
+
+    const monthLabel = `${year}年${month + 1}月`;
+    const nextDisabled = monthOffset >= 0 ? "disabled" : "";
+    heatmapEl.innerHTML = `
+      <div class="heatmap__head">
+        <button class="heatmap__nav" data-month="-1" aria-label="前の月">‹</button>
+        <span class="heatmap__title">${monthLabel} の達成カレンダー</span>
+        <button class="heatmap__nav" data-month="1" ${nextDisabled} aria-label="次の月">›</button>
+      </div>
+      <div class="heatmap__weekdays">${["日", "月", "火", "水", "木", "金", "土"]
+        .map((w) => `<span>${w}</span>`)
+        .join("")}</div>
+      <div class="heatmap__grid">${cells}</div>`;
+  }
+
   function renderLevel() {
     if (!hasFun || !levelbarEl) return;
     const lv = Fun.level();
@@ -147,8 +216,10 @@
 
   function render() {
     renderTodayLabel();
+    renderMascot();
     renderLevel();
     renderSummary();
+    renderHeatmap();
 
     listEl.innerHTML = "";
     emptyEl.hidden = habits.length > 0;
@@ -224,6 +295,7 @@
       origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }
     Fun.Sound.coin();
+    Fun.vibrate(15);
     Fun.confetti({ count: 40, origin });
 
     // 連続記録の節目で大きく祝う
@@ -267,6 +339,17 @@
     if (action === "toggle") toggleToday(id, btn);
     else if (action === "delete") deleteHabit(id);
   });
+
+  if (heatmapEl) {
+    heatmapEl.addEventListener("click", (e) => {
+      const nav = e.target.closest("[data-month]");
+      if (!nav || nav.disabled) return;
+      const next = monthOffset + Number(nav.dataset.month);
+      if (next > 0) return; // 未来は見ない
+      monthOffset = next;
+      renderHeatmap();
+    });
+  }
 
   // ---- テーマ ---------------------------------------------------------------
 
@@ -321,6 +404,105 @@
     }
   }
 
+  // ---- はじめての案内（オンボーディング） -----------------------------------
+
+  const SUGGESTIONS = [
+    "朝に水を飲む",
+    "5分ストレッチ",
+    "読書を10分",
+    "散歩する",
+    "日記を書く",
+    "早寝する",
+  ];
+
+  function setMorningTarget(target) {
+    try {
+      const raw = localStorage.getItem(MORNING_KEY);
+      const data = raw ? JSON.parse(raw) : null;
+      if (data && data.config) {
+        data.config.target = target;
+        localStorage.setItem(MORNING_KEY, JSON.stringify(data));
+      } else {
+        localStorage.setItem(
+          MORNING_KEY,
+          JSON.stringify({
+            config: { target, ratePerMin: 100, cap: 1000, payUrl: "" },
+            since: new Date().toISOString(),
+            days: {},
+            payments: [],
+          })
+        );
+      }
+    } catch (_) {}
+  }
+
+  function startOnboarding() {
+    const picked = new Set();
+    const overlay = document.createElement("div");
+    overlay.className = "onboard";
+    overlay.innerHTML = `
+      <div class="onboard__box">
+        <div class="onboard__mascot" id="onboardMascot"></div>
+        <h2 class="onboard__title">ようこそ、つづけるへ！</h2>
+        <p class="onboard__lead">小さな一歩から始めよう。相棒の「ひだまり」が一緒に育ちます。</p>
+
+        <p class="onboard__q">① はじめる習慣を選ぼう（複数OK・あとで変更できます）</p>
+        <div class="onboard__chips" id="onboardChips">
+          ${SUGGESTIONS.map((s) => `<button type="button" class="chip" data-text="${s}">${s}</button>`).join("")}
+        </div>
+        <input class="onboard__input" id="onboardCustom" type="text" maxlength="40" placeholder="自由に入力して追加" />
+
+        <p class="onboard__q">② 朝は何時に起きる？</p>
+        <input class="onboard__time" id="onboardTime" type="time" value="06:30" />
+
+        <div class="onboard__actions">
+          <button class="btn btn--primary" id="onboardStart">はじめる 🚀</button>
+          <button class="btn onboard__skip" id="onboardSkip">スキップ</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("show"));
+
+    if (hasMascot) {
+      Mascot.render(
+        document.getElementById("onboardMascot"),
+        { stage: Mascot.STAGES[1], mood: "happy", line: "" },
+        { withBubble: false }
+      );
+    }
+
+    const chips = overlay.querySelector("#onboardChips");
+    chips.addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      const text = chip.dataset.text;
+      if (picked.has(text)) picked.delete(text);
+      else picked.add(text);
+      chip.classList.toggle("is-on");
+    });
+
+    const finish = (withData) => {
+      if (withData) {
+        const custom = overlay.querySelector("#onboardCustom").value.trim();
+        if (custom) picked.add(custom);
+        for (const name of picked) addHabit(name);
+        const target = overlay.querySelector("#onboardTime").value || "06:30";
+        setMorningTarget(target);
+      }
+      localStorage.setItem(ONBOARD_KEY, "1");
+      overlay.classList.remove("show");
+      setTimeout(() => overlay.remove(), 250);
+      if (withData && hasFun) {
+        Fun.confetti({ count: 160 });
+        Fun.toast("ようこそ！一緒にがんばろう☀️", { icon: "🎉" });
+      }
+      render();
+    };
+
+    overlay.querySelector("#onboardStart").addEventListener("click", () => finish(true));
+    overlay.querySelector("#onboardSkip").addEventListener("click", () => finish(false));
+  }
+
   // 別タブでの更新に追従
   window.addEventListener("storage", (e) => {
     if (e.key === STORAGE_KEY) {
@@ -330,4 +512,8 @@
   });
 
   render();
+
+  if (!localStorage.getItem(ONBOARD_KEY) && habits.length === 0) {
+    startOnboarding();
+  }
 })();

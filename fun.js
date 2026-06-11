@@ -353,6 +353,13 @@
     });
   }
 
+  // ===== 触覚フィードバック ==================================================
+  function vibrate(pattern) {
+    try {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    } catch (_) {}
+  }
+
   // ===== 公開 ================================================================
   window.Fun = {
     totalXp,
@@ -361,6 +368,7 @@
     confetti,
     toast,
     share,
+    vibrate,
     registerInstallButton,
     registerSW,
   };

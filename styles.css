@@ -151,6 +151,186 @@ a.btn { text-decoration: none; display: inline-grid; place-items: center; }
   transition: width 0.5s ease;
 }
 
+/* ===== マスコット ひだまり ===== */
+.mascot {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 10%, var(--surface)), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 16px 20px;
+  margin-bottom: 16px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.mascot__stage {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--primary);
+  background: var(--primary-soft);
+  display: inline-block;
+  padding: 2px 12px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+.mascot__art {
+  width: 150px;
+  margin: 0 auto;
+  animation: mascot-bob 3s ease-in-out infinite;
+}
+.mascot--compact .mascot__art { width: 104px; }
+.mascot__svg { width: 100%; height: auto; display: block; }
+.mascot__rays { transform-origin: 100px 100px; animation: mascot-spin 24s linear infinite; }
+@keyframes mascot-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+@keyframes mascot-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mascot__art, .mascot__rays { animation: none; }
+}
+.mascot__bubble {
+  display: inline-block;
+  position: relative;
+  margin-top: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 9px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  max-width: 90%;
+}
+.mascot__bubble::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 7px solid var(--surface);
+}
+
+/* ===== 達成カレンダー（ヒートマップ） ===== */
+.heatmap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-bottom: 22px;
+}
+.heatmap:empty { display: none; }
+.heatmap__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.heatmap__title { font-size: 0.9rem; font-weight: 700; }
+.heatmap__nav {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.heatmap__nav:disabled { opacity: 0.3; cursor: default; }
+.heatmap__weekdays,
+.heatmap__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+.heatmap__weekdays {
+  margin-bottom: 6px;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+.heatmap__cell {
+  aspect-ratio: 1;
+  border-radius: 7px;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  position: relative;
+}
+.heatmap__cell.is-empty { background: transparent; }
+.heatmap__cell.lvl-1 { background: color-mix(in srgb, var(--primary) 28%, var(--surface-2)); color: var(--text); }
+.heatmap__cell.lvl-2 { background: color-mix(in srgb, var(--primary) 50%, var(--surface-2)); color: #fff; }
+.heatmap__cell.lvl-3 { background: color-mix(in srgb, var(--primary) 74%, var(--surface-2)); color: #fff; }
+.heatmap__cell.lvl-4 { background: var(--primary); color: #fff; }
+.heatmap__cell.is-today { outline: 2px solid var(--text); outline-offset: -2px; }
+
+/* ===== オンボーディング ===== */
+.onboard {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(160deg, #6366f1, #a855f7);
+  z-index: 10002;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow-y: auto;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.onboard.show { opacity: 1; }
+.onboard__box {
+  background: var(--surface);
+  border-radius: 24px;
+  padding: 24px 22px 22px;
+  width: min(440px, 94vw);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+.onboard__mascot { width: 120px; margin: 0 auto 4px; }
+.onboard__mascot .mascot__art { width: 120px; animation: mascot-bob 3s ease-in-out infinite; }
+.onboard__mascot .mascot__stage { display: none; }
+.onboard__title { font-size: 1.35rem; font-weight: 800; }
+.onboard__lead { font-size: 0.9rem; color: var(--text-muted); margin: 6px 0 18px; }
+.onboard__q { text-align: left; font-size: 0.88rem; font-weight: 700; margin: 16px 0 10px; }
+.onboard__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.chip.is-on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.onboard__input,
+.onboard__time {
+  width: 100%;
+  font: inherit;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.onboard__time { width: auto; min-width: 140px; }
+.onboard__actions { display: flex; flex-direction: column; gap: 8px; margin-top: 22px; }
+.onboard__actions .btn { width: 100%; padding: 14px; font-size: 1.05rem; }
+.onboard__skip { background: transparent; color: var(--text-muted); }
+
 /* ===== トースト ===== */
 #fun-toast-host {
   position: fixed;
