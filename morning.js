@@ -1,51 +1,65 @@
-/* 朝チャレンジ — 起きられなかったらペナルティが積み上がるコミットメント装置
+/* 朝チャレンジ — 起きるのが遅れるほどペナルティが積み上がるコミットメント装置
+ * 遅刻1分ごとに加算 / 1日の上限で頭打ち。
  * データは localStorage に保存。外部通信なし。実際の引き落としは行わない。
  */
 (function () {
   "use strict";
 
-  const STORE_KEY = "tsuzukeru.morning.v1";
+  const STORE_KEY = "tsuzukeru.morning.v2";
   const THEME_KEY = "tsuzukeru.theme"; // 習慣アプリとテーマを共有
   const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
   /**
    * @typedef {{
-   *   config: { target: string, penalty: number, payUrl: string },
-   *   since: string,                       // チャレンジ開始の ISO 日時
-   *   days: Record<string, { status: "done"|"failed", at?: string, amount?: number }>,
+   *   config: { target: string, ratePerMin: number, cap: number, payUrl: string },
+   *   since: string,                        // チャレンジ開始の ISO 日時
+   *   days: Record<string, {
+   *     status: "done"|"failed",
+   *     at?: string,                        // 起床確認した時刻
+   *     lateMin?: number,                   // 遅刻分
+   *     amount: number                      // その日のペナルティ
+   *   }>,
    *   payments: Array<{ amount: number, at: string }>
    * }} State
    */
 
   // ---- データ層 -------------------------------------------------------------
 
-  /** @returns {State} */
-  function load() {
-    const fallback = () => ({
-      config: { target: "06:30", penalty: 500, payUrl: "" },
+  function defaults() {
+    return {
+      config: { target: "06:30", ratePerMin: 100, cap: 1000, payUrl: "" },
       since: new Date().toISOString(),
       days: {},
       payments: [],
-    });
+    };
+  }
+
+  /** @returns {State} */
+  function load() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return fallback();
-      const data = JSON.parse(raw);
-      // 最低限の形を保証
+      if (!raw) return defaults();
+      const d = JSON.parse(raw);
+      const def = defaults();
       return {
         config: {
-          target: data?.config?.target || "06:30",
-          penalty: Number.isFinite(data?.config?.penalty) ? data.config.penalty : 500,
-          payUrl: data?.config?.payUrl || "",
+          target: d?.config?.target || def.config.target,
+          ratePerMin: numOr(d?.config?.ratePerMin, def.config.ratePerMin),
+          cap: numOr(d?.config?.cap, def.config.cap),
+          payUrl: d?.config?.payUrl || "",
         },
-        since: data?.since || new Date().toISOString(),
-        days: data?.days && typeof data.days === "object" ? data.days : {},
-        payments: Array.isArray(data?.payments) ? data.payments : [],
+        since: d?.since || def.since,
+        days: d?.days && typeof d.days === "object" ? d.days : {},
+        payments: Array.isArray(d?.payments) ? d.payments : [],
       };
     } catch (e) {
       console.warn("データの読み込みに失敗しました", e);
-      return fallback();
+      return defaults();
     }
+  }
+
+  function numOr(v, fallback) {
+    return Number.isFinite(v) ? v : fallback;
   }
 
   /** @param {State} s */
@@ -53,7 +67,7 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(s));
   }
 
-  // ---- 日付ユーティリティ ---------------------------------------------------
+  // ---- 日付・金額ユーティリティ ---------------------------------------------
 
   function dateKey(d) {
     const y = d.getFullYear();
@@ -77,36 +91,51 @@
   }
 
   function yen(n) {
-    return "¥" + Number(n).toLocaleString("ja-JP");
+    return "¥" + Math.round(Number(n)).toLocaleString("ja-JP");
+  }
+
+  /** 遅刻分（締切を過ぎた分数、切り上げ。締切前なら0） */
+  function lateMinutesAt(when, deadline) {
+    const ms = when.getTime() - deadline.getTime();
+    if (ms <= 0) return 0;
+    return Math.ceil(ms / 60000);
+  }
+
+  /** 遅刻分からペナルティ額（上限で頭打ち） */
+  function penaltyFor(lateMin) {
+    const { ratePerMin, cap } = state.config;
+    return Math.min(lateMin * ratePerMin, cap);
+  }
+
+  /** 上限に到達する遅刻分（rate=0なら∞扱い） */
+  function capMinutes() {
+    const { ratePerMin, cap } = state.config;
+    return ratePerMin > 0 ? Math.ceil(cap / ratePerMin) : Infinity;
   }
 
   // ---- 状態 -----------------------------------------------------------------
 
   let state = load();
 
-  // ---- 精算：過ぎた日で未確認のものを失敗として確定する --------------------
+  // ---- 精算：過去の日（未確認）を上限額の失敗として確定 ---------------------
 
   function settle() {
     const now = new Date();
+    const todayK = dateKey(now);
     const since = new Date(state.since);
-    // 開始日から今日まで走査
+
     let cursor = new Date(since);
     cursor.setHours(0, 0, 0, 0);
-    const todayK = dateKey(now);
 
     let changed = false;
-    while (dateKey(cursor) <= todayK) {
+    while (dateKey(cursor) < todayK) {
+      // 今日より前の日だけを確定（今日はライブ計算）
       const k = dateKey(cursor);
       const dl = deadlineOf(k, state.config.target);
       const eligible = dl.getTime() > since.getTime(); // 開始時点で締切前だった日のみ対象
-      const past = now.getTime() >= dl.getTime();
-
-      if (eligible && past && !state.days[k]) {
-        // 締切を過ぎても確認がない → 失敗確定
-        state.days[k] = {
-          status: "failed",
-          amount: state.config.penalty,
-        };
+      if (eligible && !state.days[k]) {
+        // 一度も起床確認しなかった日 → 上限額で失敗確定
+        state.days[k] = { status: "failed", amount: state.config.cap };
         changed = true;
       }
       cursor = addDays(cursor, 1);
@@ -114,29 +143,37 @@
     if (changed) save(state);
   }
 
-  /** 今日の状態を返す: "done" | "failed" | "pending" | "before-start" */
-  function todayStatus() {
+  /**
+   * 今日の状態
+   * @returns {{ kind: "done"|"active"|"before-start", late?: number, amount?: number, deadline: Date }}
+   */
+  function todayInfo() {
     const now = new Date();
     const k = dateKey(now);
-    if (state.days[k]) return state.days[k].status;
-    const dl = deadlineOf(k, state.config.target);
-    if (dl.getTime() <= new Date(state.since).getTime()) return "before-start";
-    return now.getTime() < dl.getTime() ? "pending" : "failed";
+    const deadline = deadlineOf(k, state.config.target);
+    const rec = state.days[k];
+
+    if (rec) {
+      return { kind: "done", late: rec.lateMin || 0, amount: rec.amount, deadline };
+    }
+    if (deadline.getTime() <= new Date(state.since).getTime()) {
+      return { kind: "before-start", deadline };
+    }
+    const late = lateMinutesAt(now, deadline);
+    return { kind: "active", late, amount: penaltyFor(late), deadline };
   }
 
-  function balance() {
-    const owed = Object.values(state.days)
-      .filter((d) => d.status === "failed")
-      .reduce((sum, d) => sum + (d.amount || 0), 0);
-    const paid = state.payments.reduce((sum, p) => sum + p.amount, 0);
+  function lockedBalance() {
+    const owed = Object.values(state.days).reduce((s, d) => s + (d.amount || 0), 0);
+    const paid = state.payments.reduce((s, p) => s + p.amount, 0);
     return Math.max(0, owed - paid);
   }
 
-  function failedCount() {
-    return Object.values(state.days).filter((d) => d.status === "failed").length;
-  }
   function doneCount() {
     return Object.values(state.days).filter((d) => d.status === "done").length;
+  }
+  function failedCount() {
+    return Object.values(state.days).filter((d) => d.status === "failed").length;
   }
 
   // ---- DOM 参照 -------------------------------------------------------------
@@ -149,7 +186,8 @@
   const themeToggleEl = document.getElementById("themeToggle");
   const settingsFormEl = document.getElementById("settingsForm");
   const targetTimeEl = document.getElementById("targetTime");
-  const penaltyEl = document.getElementById("penalty");
+  const ratePerMinEl = document.getElementById("ratePerMin");
+  const capEl = document.getElementById("cap");
   const payUrlEl = document.getElementById("payUrl");
 
   // ---- 寝ぼけ防止チャレンジ -------------------------------------------------
@@ -168,10 +206,7 @@
   }
 
   function startChallenge() {
-    challenge = {
-      problems: [makeProblem(), makeProblem(), makeProblem()],
-      index: 0,
-    };
+    challenge = { problems: [makeProblem(), makeProblem(), makeProblem()], index: 0 };
     renderWake();
   }
 
@@ -179,22 +214,27 @@
     if (!challenge) return;
     const p = challenge.problems[challenge.index];
     if (Number(value) !== p.answer) {
-      // 間違い → 新しい問題に差し替えて続行
       challenge.problems[challenge.index] = makeProblem();
       renderWake(true);
       return;
     }
     challenge.index++;
-    if (challenge.index >= challenge.problems.length) {
-      confirmWake();
-    } else {
-      renderWake();
-    }
+    if (challenge.index >= challenge.problems.length) confirmWake();
+    else renderWake();
   }
 
+  /** 起床確定：押した瞬間の遅刻分でペナルティを固定 */
   function confirmWake() {
-    const k = dateKey(new Date());
-    state.days[k] = { status: "done", at: new Date().toISOString() };
+    const now = new Date();
+    const k = dateKey(now);
+    const deadline = deadlineOf(k, state.config.target);
+    const late = lateMinutesAt(now, deadline);
+    state.days[k] = {
+      status: "done",
+      at: now.toISOString(),
+      lateMin: late,
+      amount: penaltyFor(late),
+    };
     challenge = null;
     save(state);
     render();
@@ -207,35 +247,47 @@
     todayLabelEl.textContent = `${now.getMonth() + 1}月${now.getDate()}日（${WEEKDAYS[now.getDay()]}）`;
   }
 
+  function fmtTime(d) {
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
   function renderStatus() {
-    const st = todayStatus();
-    const target = state.config.target;
+    const info = todayInfo();
+    const { target, cap } = state.config;
     let icon, title, sub, cls;
 
-    if (st === "done") {
-      const at = state.days[dateKey(new Date())].at;
-      const t = at ? new Date(at) : null;
-      icon = "🌞";
-      title = "今日は達成！";
-      sub = t
-        ? `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")} に起床を確認`
-        : "起床を確認しました";
-      cls = "is-done";
-    } else if (st === "pending") {
-      icon = "⏰";
-      title = `${target} までに起きよう`;
-      sub = `間に合わなければ ${yen(state.config.penalty)} のペナルティ`;
-      cls = "is-pending";
-    } else if (st === "failed") {
-      icon = "💸";
-      title = "今日は時間切れ…";
-      sub = `${yen(state.config.penalty)} が残高に加算されました`;
-      cls = "is-failed";
-    } else {
+    if (info.kind === "done") {
+      if (info.amount > 0) {
+        icon = "🛏️";
+        title = `${info.late}分の遅刻で確定`;
+        sub = `本日のペナルティ ${yen(info.amount)}`;
+        cls = "is-failed";
+      } else {
+        icon = "🌞";
+        title = "時間内に起床！";
+        sub = "今日のペナルティは ¥0";
+        cls = "is-done";
+      }
+    } else if (info.kind === "before-start") {
       icon = "🌱";
       title = "チャレンジ開始";
       sub = `明日 ${target} からカウント開始`;
       cls = "is-before";
+    } else if (info.late === 0) {
+      // active・締切前
+      icon = "⏰";
+      title = `${target} までに起きよう`;
+      sub = `今押せば ¥0（遅刻すると ${yen(state.config.ratePerMin)}/分・上限 ${yen(cap)}）`;
+      cls = "is-pending";
+    } else {
+      // active・遅刻中（ライブ加算）
+      const atCap = info.amount >= cap;
+      icon = "💸";
+      title = `${info.late}分 遅刻中… ${yen(info.amount)}`;
+      sub = atCap
+        ? `上限 ${yen(cap)} に到達。これ以上は増えません`
+        : `1分ごとに +${yen(state.config.ratePerMin)}（上限 ${yen(cap)} ／ ${capMinutes()}分で頭打ち）`;
+      cls = "is-failed";
     }
 
     statusCardEl.className = `morning-status ${cls}`;
@@ -246,23 +298,21 @@
   }
 
   function renderWake() {
-    const st = todayStatus();
-
-    if (st !== "pending") {
-      // 起きるべき時間帯ではない
+    const info = todayInfo();
+    if (info.kind !== "active") {
       wakeAreaEl.innerHTML = "";
       return;
     }
 
     if (!challenge) {
+      const label = info.late > 0 ? `起きた！（加算を止める）` : "起きた！";
       wakeAreaEl.innerHTML = `
-        <button class="wake__btn" id="wakeBtn">起きた！</button>
+        <button class="wake__btn" id="wakeBtn">${label}</button>
         <p class="wake__note">押すと寝ぼけ防止の計算（3問）が出ます</p>`;
       document.getElementById("wakeBtn").addEventListener("click", startChallenge);
       return;
     }
 
-    // チャレンジ中
     const p = challenge.problems[challenge.index];
     const wrong = arguments[0] === true;
     wakeAreaEl.innerHTML = `
@@ -285,29 +335,34 @@
   }
 
   function renderBalance() {
-    const bal = balance();
+    const locked = lockedBalance();
+    const info = todayInfo();
+    const live = info.kind === "active" ? info.amount : 0;
+    const total = locked + live;
     const hasPayUrl = !!state.config.payUrl;
+
     balanceCardEl.innerHTML = `
       <div class="balance__main">
         <div class="balance__label">未払いのペナルティ残高</div>
-        <div class="balance__amount ${bal > 0 ? "is-owed" : ""}">${yen(bal)}</div>
+        <div class="balance__amount ${total > 0 ? "is-owed" : ""}">${yen(total)}</div>
+        ${live > 0 ? `<div class="balance__live">うち今日分 ${yen(live)}（加算中）</div>` : ""}
       </div>
       <div class="balance__stats">
         <span>✅ 達成 ${doneCount()}</span>
-        <span>💸 失敗 ${failedCount()}</span>
+        <span>💸 遅刻 ${failedCount()}</span>
       </div>
       <div class="balance__actions">
-        <button class="btn btn--primary" id="payBtn" ${bal <= 0 ? "disabled" : ""}>
+        <button class="btn btn--primary" id="payBtn" ${locked <= 0 ? "disabled" : ""}>
           支払う${hasPayUrl ? "" : "（リンク未設定）"}
         </button>
-      </div>`;
+      </div>
+      <p class="settings__hint">確定分のみ支払えます（今日分は起床確認後に確定）。</p>`;
 
     const payBtn = document.getElementById("payBtn");
     if (payBtn) payBtn.addEventListener("click", payNow);
   }
 
   function renderLog() {
-    // 直近14日を新しい順で
     const rows = [];
     let cursor = new Date();
     for (let i = 0; i < 14; i++) {
@@ -315,19 +370,24 @@
       const rec = state.days[k];
       let badge, text;
       if (rec?.status === "done") {
-        badge = "✅";
-        text = "達成";
+        if (rec.amount > 0) {
+          badge = "🛏️";
+          text = `${rec.lateMin}分遅刻 −${yen(rec.amount)}`;
+        } else {
+          badge = "✅";
+          text = "時間内に達成";
+        }
       } else if (rec?.status === "failed") {
         badge = "💸";
-        text = `失敗 −${yen(rec.amount || 0)}`;
+        text = `未起床 −${yen(rec.amount || 0)}（上限）`;
       } else {
         const dl = deadlineOf(k, state.config.target);
         if (dl.getTime() <= new Date(state.since).getTime()) {
           badge = "·";
           text = "対象外";
-        } else if (new Date().getTime() < dl.getTime()) {
+        } else if (k === dateKey(new Date())) {
           badge = "⏳";
-          text = "これから";
+          text = "進行中";
         } else {
           badge = "·";
           text = "—";
@@ -346,7 +406,8 @@
 
   function renderSettings() {
     targetTimeEl.value = state.config.target;
-    penaltyEl.value = state.config.penalty;
+    ratePerMinEl.value = state.config.ratePerMin;
+    capEl.value = state.config.cap;
     payUrlEl.value = state.config.payUrl;
   }
 
@@ -361,12 +422,10 @@
   // ---- 操作 -----------------------------------------------------------------
 
   function payNow() {
-    const bal = balance();
+    const bal = lockedBalance();
     if (bal <= 0) return;
-    if (state.config.payUrl) {
-      window.open(state.config.payUrl, "_blank", "noopener");
-    }
-    if (confirm(`${yen(bal)} を支払いましたか？\n「OK」で残高をリセットします。`)) {
+    if (state.config.payUrl) window.open(state.config.payUrl, "_blank", "noopener");
+    if (confirm(`${yen(bal)} を支払いましたか？\n「OK」で確定残高をリセットします。`)) {
       state.payments.push({ amount: bal, at: new Date().toISOString() });
       save(state);
       render();
@@ -376,7 +435,8 @@
   settingsFormEl.addEventListener("submit", (e) => {
     e.preventDefault();
     state.config.target = targetTimeEl.value || "06:30";
-    state.config.penalty = Math.max(0, Number(penaltyEl.value) || 0);
+    state.config.ratePerMin = Math.max(0, Number(ratePerMinEl.value) || 0);
+    state.config.cap = Math.max(0, Number(capEl.value) || 0);
     state.config.payUrl = payUrlEl.value.trim();
     save(state);
     settle();
@@ -419,10 +479,11 @@
     }
   });
 
-  // 締切またぎに備え、1分ごとに再評価（チャレンジ入力中は触らない）
+  // 遅刻中はライブ加算を見せるため毎秒更新。確定や日付またぎも拾う。
   setInterval(() => {
-    if (challenge) return;
+    if (challenge) return; // 入力中は触らない
     settle();
-    render();
-  }, 60 * 1000);
+    renderStatus();
+    renderBalance();
+  }, 1000);
 })();

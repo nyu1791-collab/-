@@ -346,6 +346,7 @@ a.btn { text-decoration: none; display: inline-grid; place-items: center; }
 .balance__label { font-size: 0.8rem; color: var(--text-muted); }
 .balance__amount { font-size: 2rem; font-weight: 800; margin-top: 2px; }
 .balance__amount.is-owed { color: var(--danger); }
+.balance__live { font-size: 0.78rem; color: var(--danger); margin-top: 2px; }
 .balance__stats {
   display: flex;
   gap: 16px;

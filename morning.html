@@ -38,8 +38,12 @@
           <input type="time" id="targetTime" required />
         </label>
         <label class="field">
-          <span>失敗1回あたりのペナルティ（円）</span>
-          <input type="number" id="penalty" min="0" step="50" required />
+          <span>遅刻1分あたりの単価（円／分）</span>
+          <input type="number" id="ratePerMin" min="0" step="10" required />
+        </label>
+        <label class="field">
+          <span>1日の上限（円）</span>
+          <input type="number" id="cap" min="0" step="100" required />
         </label>
         <label class="field">
           <span>支払いリンク（任意：Stripe / PayPay / Kyash 等のURL）</span>
