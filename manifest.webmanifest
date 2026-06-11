@@ -36,6 +36,12 @@
       "short_name": "朝",
       "url": "./morning.html",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "統計",
+      "short_name": "統計",
+      "url": "./stats.html",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

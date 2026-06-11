@@ -27,6 +27,7 @@
         <button class="btn btn--icon" id="installBtn" title="ホーム画面に追加" aria-label="ホーム画面に追加" hidden>📲</button>
         <button class="btn btn--icon" id="soundToggle" title="効果音" aria-label="効果音">🔊</button>
         <a class="btn btn--icon" href="index.html" title="習慣一覧へ" aria-label="習慣一覧へ">📋</a>
+        <a class="btn btn--icon" href="stats.html" title="統計" aria-label="統計">📊</a>
         <button class="btn btn--icon" id="themeToggle" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
       </div>
     </header>
@@ -62,6 +63,20 @@
           <span>支払いリンク（任意：Stripe / PayPay / Kyash 等のURL）</span>
           <input type="url" id="payUrl" placeholder="https://..." />
         </label>
+
+        <div class="field field--switch">
+          <label class="switch">
+            <input type="checkbox" id="remMorning" />
+            <span>起床リマインダー（目標時刻に通知）</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="remHabit" />
+            <span>習慣リマインダー</span>
+            <input type="time" id="remHabitTime" value="21:00" class="switch__time" />
+          </label>
+          <p class="settings__hint" id="remHint"></p>
+        </div>
+
         <button type="submit" class="btn btn--primary">設定を保存</button>
         <p class="settings__hint">
           支払いリンクを入れておくと「支払う」ボタンからそのページを開けます。
@@ -86,6 +101,7 @@
 
   <script src="fun.js"></script>
   <script src="mascot.js"></script>
+  <script src="reminders.js"></script>
   <script src="morning.js"></script>
 </body>
 </html>

@@ -331,6 +331,100 @@ a.btn { text-decoration: none; display: inline-grid; place-items: center; }
 .onboard__actions .btn { width: 100%; padding: 14px; font-size: 1.05rem; }
 .onboard__skip { background: transparent; color: var(--text-muted); }
 
+/* ===== 設定スイッチ ===== */
+.field--switch { gap: 10px; }
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.switch input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--primary); }
+.switch__time {
+  margin-left: auto;
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* ===== 統計ページ ===== */
+.statgrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.statcard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  text-align: center;
+}
+.statcard__num { font-size: 1.5rem; font-weight: 800; color: var(--primary); }
+.statcard__label { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+.statcard__sub { font-size: 0.66rem; color: var(--text-muted); margin-top: 4px; }
+
+.chartcard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+.chartcard canvas { width: 100%; display: block; }
+.chartcard__avg { text-align: center; font-size: 0.82rem; color: var(--text-muted); margin-top: 8px; }
+
+.badges__count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.badges__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+.badge {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 14px 8px;
+  text-align: center;
+}
+.badge.is-locked { opacity: 0.55; filter: grayscale(0.6); }
+.badge__icon { font-size: 1.7rem; }
+.badge__title { font-size: 0.74rem; font-weight: 700; margin-top: 4px; }
+.badge__desc { font-size: 0.64rem; color: var(--text-muted); margin-top: 2px; }
+
+.perhabit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.perhabit__row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+}
+.perhabit__name { font-weight: 600; }
+.perhabit__stats {
+  display: flex;
+  gap: 14px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 /* ===== トースト ===== */
 #fun-toast-host {
   position: fixed;

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#6366f1" />
+  <title>統計 — つづける</title>
+  <meta name="description" content="続けた記録と、朝チャレンジで守ったお金をふりかえる統計ページ。" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header__title">
+        <h1>統計</h1>
+        <p class="header__date" id="todayLabel"></p>
+      </div>
+      <div class="header__actions">
+        <a class="btn btn--icon" href="index.html" title="習慣一覧へ" aria-label="習慣一覧へ">📋</a>
+        <a class="btn btn--icon" href="morning.html" title="朝チャレンジ" aria-label="朝チャレンジ">⏰</a>
+        <button class="btn btn--icon" id="themeToggle" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
+      </div>
+    </header>
+
+    <section class="mascot mascot--compact" id="mascot"></section>
+
+    <h2 class="section-title">つづけた記録</h2>
+    <section class="statgrid" id="recordStats"></section>
+
+    <h2 class="section-title">直近30日の達成率</h2>
+    <section class="chartcard">
+      <canvas id="trendChart" width="640" height="220" aria-label="30日間の達成率グラフ"></canvas>
+      <p class="chartcard__avg" id="trendAvg"></p>
+    </section>
+
+    <h2 class="section-title">朝チャレンジのお金</h2>
+    <section class="statgrid" id="moneyStats"></section>
+
+    <h2 class="section-title">実績バッジ</h2>
+    <section class="badges" id="badges"></section>
+
+    <h2 class="section-title">習慣ごとの記録</h2>
+    <section class="perhabit" id="perHabit"></section>
+
+    <div class="cta">
+      <button class="btn btn--ghost" id="shareBtn">📣 統計をシェア</button>
+    </div>
+
+    <footer class="footer">
+      <p>データはこのブラウザ内にのみ保存されます。</p>
+    </footer>
+  </div>
+
+  <script src="fun.js"></script>
+  <script src="mascot.js"></script>
+  <script src="stats.js"></script>
+</body>
+</html>

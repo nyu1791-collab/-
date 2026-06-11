@@ -193,8 +193,13 @@
   const installBtnEl = document.getElementById("installBtn");
   const shareBtnEl = document.getElementById("shareBtn");
   const mascotEl = document.getElementById("mascot");
+  const remMorningEl = document.getElementById("remMorning");
+  const remHabitEl = document.getElementById("remHabit");
+  const remHabitTimeEl = document.getElementById("remHabitTime");
+  const remHintEl = document.getElementById("remHint");
   const hasFun = typeof window.Fun !== "undefined";
   const hasMascot = typeof window.Mascot !== "undefined";
+  const hasReminders = typeof window.Reminders !== "undefined";
 
   // ---- 寝ぼけ防止チャレンジ -------------------------------------------------
 
@@ -545,6 +550,44 @@
           text: `「つづける」の朝チャレンジに挑戦中！ 目標${state.config.target}起床`,
         });
       });
+    }
+  }
+
+  // ---- リマインダー ---------------------------------------------------------
+
+  function refreshReminderUI() {
+    if (!hasReminders || !remMorningEl) return;
+    const s = Reminders.get();
+    remMorningEl.checked = s.morning;
+    remHabitEl.checked = s.habit;
+    remHabitTimeEl.value = s.habitTime;
+    const p = Reminders.permission();
+    if (!Reminders.supported()) {
+      remHintEl.textContent = "この環境は通知に対応していません。";
+      remMorningEl.disabled = remHabitEl.disabled = true;
+    } else if (p === "denied") {
+      remHintEl.textContent = "通知がブロックされています。ブラウザ設定で許可してください。";
+    } else {
+      remHintEl.textContent = "※アプリを開いている間に通知します（完全な常時通知にはPush対応が必要）。";
+    }
+  }
+
+  if (hasReminders) {
+    Reminders.init();
+    refreshReminderUI();
+    if (remMorningEl) {
+      remMorningEl.addEventListener("change", async () => {
+        const on = await Reminders.toggle("morning", remMorningEl.checked);
+        remMorningEl.checked = on;
+        if (on && hasFun) Fun.toast("起床リマインダーをオンにしました", { icon: "🔔" });
+        refreshReminderUI();
+      });
+      remHabitEl.addEventListener("change", async () => {
+        const on = await Reminders.toggle("habit", remHabitEl.checked);
+        remHabitEl.checked = on;
+        refreshReminderUI();
+      });
+      remHabitTimeEl.addEventListener("change", () => Reminders.setHabitTime(remHabitTimeEl.value));
     }
   }
 

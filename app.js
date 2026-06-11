@@ -374,6 +374,8 @@
 
   // ---- 楽しさ・PWA連携 ------------------------------------------------------
 
+  if (typeof window.Reminders !== "undefined") Reminders.init();
+
   if (hasFun) {
     Fun.registerSW();
     Fun.registerInstallButton(installBtnEl);
