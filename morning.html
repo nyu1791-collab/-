@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#6366f1" />
+  <title>朝チャレンジ — つづける</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header__title">
+        <h1>朝チャレンジ</h1>
+        <p class="header__date" id="todayLabel"></p>
+      </div>
+      <div class="header__actions">
+        <a class="btn btn--icon" href="index.html" title="習慣一覧へ" aria-label="習慣一覧へ">📋</a>
+        <button class="btn btn--icon" id="themeToggle" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
+      </div>
+    </header>
+
+    <!-- 今日の状態 -->
+    <section class="morning-status" id="statusCard"></section>
+
+    <!-- 起きた！ボタン / 認証 -->
+    <section class="wake" id="wakeArea"></section>
+
+    <!-- 残高 -->
+    <section class="balance" id="balanceCard"></section>
+
+    <!-- 設定 -->
+    <details class="settings" id="settings">
+      <summary>設定</summary>
+      <form id="settingsForm" class="settings__form" autocomplete="off">
+        <label class="field">
+          <span>起床の目標時刻</span>
+          <input type="time" id="targetTime" required />
+        </label>
+        <label class="field">
+          <span>失敗1回あたりのペナルティ（円）</span>
+          <input type="number" id="penalty" min="0" step="50" required />
+        </label>
+        <label class="field">
+          <span>支払いリンク（任意：Stripe / PayPay / Kyash 等のURL）</span>
+          <input type="url" id="payUrl" placeholder="https://..." />
+        </label>
+        <button type="submit" class="btn btn--primary">設定を保存</button>
+        <p class="settings__hint">
+          支払いリンクを入れておくと「支払う」ボタンからそのページを開けます。
+        </p>
+      </form>
+    </details>
+
+    <!-- 履歴 -->
+    <section>
+      <h2 class="section-title">直近の記録</h2>
+      <ul class="log" id="logList"></ul>
+    </section>
+
+    <footer class="footer">
+      <p>データはこのブラウザ内にのみ保存されます。実際の引き落としは行われません。</p>
+    </footer>
+  </div>
+
+  <script src="morning.js"></script>
+</body>
+</html>
