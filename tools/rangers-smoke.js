@@ -78,19 +78,21 @@ vm.createContext(sandbox);
 
 /* ---- rangers.js を読み込み、テスト用フックを追加 ---- */
 let src = fs.readFileSync(path.join(__dirname, "..", "rangers.js"), "utf8");
-src += "\nglobalThis.__test = { Battle, Commander, UNITS, ENEMIES, STAGES, STAGE_COUNT, save," +
-  " HEROES, HERO_BY_KEY, HERO_KEYS, SKILLS, RARITY, ROLE_TPL, heroSpec, heroPower, DECK_SIZE," +
-  " rollMany, rollOnce, grantHero, buildShareCode, parseShareCode, deckSpecs, myDeckSpecs, ensureDeck," +
+src += "\nglobalThis.__test = { Battle, Commander, ENEMIES, STAGES, STAGE_COUNT, save," +
+  " HEROES, HERO_BY_KEY, HERO_KEYS, BASE_HERO_KEYS, SKILLS, RARITY, ROLE_TPL, heroSpec, heroPower, DECK_SIZE," +
+  " rollMany, rollOnce, grantHero, buildShareCode, parseShareCode, deckSpecs, myDeckSpecs, campaignDeckSpecs, ensureDeck," +
   " rivalDeck, makeRng, GACHA, isHeroOwned, heroLb, GACHA_POOL };\n";
 vm.runInContext(src, sandbox, { filename: "rangers.js" });
 const T = sandbox.__test;
-const { Battle, UNITS, STAGE_COUNT, save } = T;
+const { Battle, STAGE_COUNT, save } = T;
 
 /* ---- 単純 AI でステージをシミュレート ---- */
 function simulate(stageNo, { maxSec = 300, unitLv = 1 } = {}) {
-  for (const u of UNITS) save.unitLv[u.key] = unitLv;
+  for (const k of T.BASE_HERO_KEYS) save.unitLv[k] = unitLv;
   save.stars = {};
   for (let i = 1; i <= STAGE_COUNT; i++) save.stars[i] = 1; // 全ユニット解放状態で試す
+  save.deck = [];          // ensureDeck で基本6体（mike,usa,pochi,moko,fuku,kuma 順）に再編成させる
+  save.heroes = {};
 
   const b = new Battle(stageNo, { endless: stageNo === 0 });
   const dt = 1 / 30;
@@ -340,6 +342,53 @@ function simulateArenaCommanders(playerDeck, oppDeck, seed) {
     if (b.over && b.over.win) wins++;
   }
   check("★3デッキは★1デッキに有利（7戦中4勝以上）", wins >= 4, `${wins}/${tries} 勝`);
+}
+
+/* 17) ガチャヒーローはぼうけん（campaign）でも使える */
+{
+  save.stars = {}; save.stars[1] = 1;          // ステージ1だけクリア済み
+  save.heroes = { drao: { lb: 1, dupes: 1 } }; // ★3ドラオを所持
+  save.deck = ["drao", "mike", "usa"];
+  save.unitLv = { drao: 3 };
+  const b = new Battle(2, {});
+  const keys = b.roster.map((s) => s.key).join(",");
+  check("campaign のカード列にガチャヒーローが並ぶ", keys === "drao,mike,usa", keys);
+  check("campaign でも★3スキルが乗る", b.roster[0].skill === "splash");
+  // ゴールド強化（Lv3）と限界突破(+1)が campaign スペックに反映される
+  const base = T.heroSpec("drao", 1).hp;
+  check("campaign はゴールド強化が上乗せされる", b.roster[0].hp === Math.round(base * (1 + 0.13 * 2)),
+    `素${base} → 強化後${b.roster[0].hp}`);
+  // 実際に召喚できる
+  b.mana = 500;
+  const ok = b.summon(0);
+  const f = b.fighters[b.fighters.length - 1];
+  check("ガチャヒーローを campaign で召喚できる", ok && f && f.spec.key === "drao" && f.skill === "splash");
+}
+
+/* 18) 未解放の基本ヒーローはデッキに入らない（進行ゲートの維持） */
+{
+  save.stars = {};                             // 何もクリアしていない
+  save.heroes = {};
+  save.deck = [];
+  T.ensureDeck();
+  const deck = save.deck.join(",");
+  check("初期デッキは みけ・うさ・ぽち の3体だけ", deck === "mike,usa,pochi", deck);
+}
+
+/* 19) 見た目の重複がない（look＋skin の組み合わせが全ヒーローで一意） */
+{
+  const sigs = T.HEROES.map((h) => `${h.look}|${JSON.stringify(h.skin || {})}`);
+  const dup = sigs.filter((s, i) => sigs.indexOf(s) !== i);
+  check("全ヒーローの見た目（look+装飾）が一意", dup.length === 0, dup.length ? `重複: ${dup.join(" / ")}` : `${sigs.length}体すべて固有`);
+  // 色だけの違いに頼らない：ガチャヒーローは装飾パーツ持ち or 固有 look
+  const PART_KEYS = ["band", "eyepatch", "cape", "flower", "glasses", "goggles", "plume", "halo", "maskNinja", "weapon", "hatColor", "helmet", "fluffy"];
+  const plain = T.GACHA_POOL.filter((h) => {
+    const baseLooks = ["cat", "rabbit", "dog", "sheep", "owl", "bear"];
+    if (!baseLooks.includes(h.look)) return false;       // 固有 look（dragon/penguin/witch/imp）はOK
+    return !PART_KEYS.some((k) => h.skin && k in h.skin);
+  });
+  check("基本と同じ見た目のガチャヒーローは全員 装飾パーツ持ち", plain.length === 0,
+    plain.length ? `色違いのみ: ${plain.map((h) => h.name).join(",")}` : "OK");
 }
 
 console.log(failures === 0 ? "\nすべてのチェックに合格 🎉" : `\n${failures} 件のチェックに失敗`);

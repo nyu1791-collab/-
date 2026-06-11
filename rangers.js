@@ -202,24 +202,9 @@ const SFX = (() => {
  * 3. データ定義
  * ============================================================ */
 
-// 味方ユニット。cost=召喚マナ, cd=再召喚までの秒数, interval=攻撃間隔(秒),
-// unlock=解放に必要なクリアステージ数（0 は最初から使える）
-const UNITS = [
-  { key: "mike",  name: "みけ",  look: "cat",    desc: "すばやい近接アタッカー", unlock: 0,
-    cost: 40,  cd: 1.4,  hp: 240, atk: 30, range: 28,  interval: 0.7,  speed: 66 },
-  { key: "usa",   name: "うさ",  look: "rabbit", desc: "遠くから弓ですないぱー", unlock: 0,
-    cost: 85,  cd: 2.6,  hp: 150, atk: 36, range: 195, interval: 1.15, speed: 56, proj: "arrow" },
-  { key: "pochi", name: "ぽち",  look: "dog",    desc: "かたい盾やく。前線を守る", unlock: 0,
-    cost: 150, cd: 5.0,  hp: 980, atk: 24, range: 30,  interval: 1.2,  speed: 36 },
-  { key: "moko",  name: "もこ",  look: "sheep",  desc: "味方をもこもこ回復", unlock: 2,
-    cost: 130, cd: 6.0,  hp: 250, atk: 12, range: 150, interval: 1.4,  speed: 50, heal: 50 },
-  { key: "fuku",  name: "ふく",  look: "owl",    desc: "魔法で範囲こうげき", unlock: 4,
-    cost: 180, cd: 7.0,  hp: 175, atk: 62, range: 215, interval: 1.9,  speed: 46, proj: "orb", aoe: 72 },
-  { key: "kuma",  name: "くま",  look: "bear",   desc: "強烈な一撃＋ふっとばし", unlock: 6,
-    cost: 280, cd: 11.0, hp: 680, atk: 96, range: 42,  interval: 1.7,  speed: 40, aoeMelee: true, knock: 30, r: 24 },
-];
-
-function isUnitUnlocked(u) { return clearedCount() >= (u.unlock || 0); }
+// 味方ユニットは「ヒーロー」（3b 参照）に統一。
+// ぼうけん（campaign）もアリーナ（PvP）も、編成したデッキで戦う。
+// 基本ヒーローは unlock（クリアステージ数）で順に仲間になる。
 
 // エンドレスモードの解放条件（クリアステージ数）
 const ENDLESS_UNLOCK = 4;
@@ -297,35 +282,63 @@ const SKILLS = {
   explode:    { name: "じばく",           icon: "💥", desc: "たおれる時、周囲へ大ダメージ" },
 };
 
-// ヒーロー図鑑。base:true は最初から所持。skill は ★3 のみ。
+// ロールの説明（強化画面・図鑑用）
+const ROLE_DESC = {
+  melee:    "すばやい近接アタッカー",
+  assassin: "超スピードで切り込む暗殺者",
+  archer:   "遠くから弓ですないぱー",
+  tank:     "かたい盾やく。前線を守る",
+  healer:   "味方を回復してささえる",
+  mage:     "魔法で範囲こうげき",
+  bomber:   "大爆発の広範囲こうげき",
+  bruiser:  "強烈な一撃＋ふっとばし",
+};
+
+// ヒーロー図鑑。base:true は基本ヒーロー（unlock ステージクリアで仲間に）。
+// skill は ★3 のみ。skin は見た目の差分（色だけでなく装飾パーツも指定できる）。
 const HEROES = [
-  // --- 基本（最初から所持）---
-  { key: "mike",  name: "みけ",    role: "melee",    rarity: 1, look: "cat",    base: true },
-  { key: "usa",   name: "うさ",    role: "archer",   rarity: 1, look: "rabbit", base: true },
-  { key: "pochi", name: "ぽち",    role: "tank",     rarity: 2, look: "dog",    base: true },
-  { key: "moko",  name: "もこ",    role: "healer",   rarity: 2, look: "sheep",  base: true },
-  { key: "fuku",  name: "ふく",    role: "mage",     rarity: 2, look: "owl",    base: true },
-  { key: "kuma",  name: "くま",    role: "bruiser",  rarity: 2, look: "bear",   base: true },
-  // --- ★1 ---
-  { key: "chibi", name: "ちびトラ", role: "melee",   rarity: 1, look: "cat",    skin: { body: "#d9d2c8", cheek: "#e7a98c" } },
-  { key: "nora",  name: "ノラ",     role: "assassin", rarity: 1, look: "cat",    skin: { body: "#6f6f7a", cheek: "#b25" } },
-  { key: "pyon",  name: "ぴょん",   role: "archer",  rarity: 1, look: "rabbit", skin: { body: "#ffe7b0" } },
-  { key: "wanko", name: "わんこ",   role: "tank",    rarity: 1, look: "dog",    skin: { body: "#e0b07a" } },
-  { key: "fuwa",  name: "ふわ",     role: "healer",  rarity: 1, look: "sheep",  skin: { cheek: "#bfe0ff" } },
-  // --- ★2 ---
-  { key: "aone",  name: "アオネコ", role: "melee",   rarity: 2, look: "cat",    skin: { body: "#7fb6e8", cheek: "#9fe" } },
-  { key: "shoot", name: "シュート", role: "archer",  rarity: 2, look: "rabbit", skin: { body: "#bff0d0" } },
-  { key: "gaado", name: "ガード",   role: "tank",    rarity: 2, look: "dog",    skin: { body: "#9aa8c4" } },
-  { key: "marl",  name: "マール",   role: "mage",    rarity: 2, look: "owl",    skin: { body: "#8fa0e8" } },
-  { key: "bomb",  name: "ボマー",   role: "bomber",  rarity: 2, look: "imp",    skin: { body: "#e0a85c", belly: "#f6d6a6" } },
-  { key: "pengo", name: "ペンゴ",   role: "bruiser", rarity: 2, look: "bear",   skin: { body: "#5b6b86", belly: "#cfe0ff" } },
-  // --- ★3（スキル持ち）---
-  { key: "drao",  name: "竜帝ドラオ", role: "bruiser", rarity: 3, look: "bear",  skin: { body: "#caa23a", belly: "#ffe9a8" }, skill: "splash" },
-  { key: "noel",  name: "聖女ノエル", role: "healer",  rarity: 3, look: "sheep", skin: { cheek: "#ffd0dc" }, skill: "aura_heal" },
-  { key: "vell",  name: "魔女ヴェル", role: "mage",    rarity: 3, look: "witch", skin: { body: "#caa0ee", belly: "#ecd9ff" }, skill: "aura_atk" },
-  { key: "gareth", name: "騎士ガレス", role: "tank",   rarity: 3, look: "dog",   skin: { body: "#d8c87a" }, skill: "aura_guard" },
-  { key: "shino", name: "影丸シノ",   role: "assassin", rarity: 3, look: "cat",  skin: { body: "#3a3a48", cheek: "#a44" }, skill: "crit" },
-  { key: "bon",   name: "爆弾魔ボン", role: "bomber",  rarity: 3, look: "imp",   skin: { body: "#cfcf5a", belly: "#eeeeb0" }, skill: "explode" },
+  // --- 基本（ストーリーで仲間になる）---
+  { key: "mike",  name: "みけ",    role: "melee",    rarity: 1, look: "cat",    base: true, unlock: 0 },
+  { key: "usa",   name: "うさ",    role: "archer",   rarity: 1, look: "rabbit", base: true, unlock: 0 },
+  { key: "pochi", name: "ぽち",    role: "tank",     rarity: 2, look: "dog",    base: true, unlock: 0 },
+  { key: "moko",  name: "もこ",    role: "healer",   rarity: 2, look: "sheep",  base: true, unlock: 2 },
+  { key: "fuku",  name: "ふく",    role: "mage",     rarity: 2, look: "owl",    base: true, unlock: 4 },
+  { key: "kuma",  name: "くま",    role: "bruiser",  rarity: 2, look: "bear",   base: true, unlock: 6 },
+  // --- ★1（ガチャ）---
+  { key: "chibi", name: "ちびトラ", role: "melee",   rarity: 1, look: "cat",
+    skin: { body: "#f0d9b8", cheek: "#ffb98c", band: "#e05a4e" } },
+  { key: "nora",  name: "ノラ",     role: "assassin", rarity: 1, look: "cat",
+    skin: { body: "#7a7a88", cheek: "#bb5566", eyepatch: true, cape: "#4a4a58" } },
+  { key: "pyon",  name: "ぴょん",   role: "archer",  rarity: 1, look: "rabbit",
+    skin: { body: "#ffe7b0", flower: "#ff8fb3" } },
+  { key: "wanko", name: "わんこ",   role: "tank",    rarity: 1, look: "dog",
+    skin: { body: "#e8c78f", helmet: false, band: "#4e8de0" } },
+  { key: "fuwa",  name: "ふわ",     role: "healer",  rarity: 1, look: "sheep",
+    skin: { fluffy: "#ffeef5", body: "#fff6f9", cheek: "#ffc1d0", glasses: true } },
+  // --- ★2（ガチャ）---
+  { key: "aone",  name: "アオネコ", role: "melee",   rarity: 2, look: "cat",
+    skin: { body: "#7fb6e8", cheek: "#99ffee", cape: "#2e5fa8", band: "#ffd54a" } },
+  { key: "shoot", name: "シュート", role: "archer",  rarity: 2, look: "rabbit",
+    skin: { body: "#bff0d0", goggles: true } },
+  { key: "gaado", name: "ガード",   role: "tank",    rarity: 2, look: "dog",
+    skin: { body: "#9aa8c4", plume: "#e05a4e" } },
+  { key: "marl",  name: "マール",   role: "mage",    rarity: 2, look: "owl",
+    skin: { body: "#8fa0e8", belly: "#cfe0ff", hatColor: "#27408b", glasses: true } },
+  { key: "bomb",  name: "ボマー",   role: "bomber",  rarity: 2, look: "imp",
+    skin: { body: "#e0a85c", belly: "#f6d6a6", goggles: true } },
+  { key: "pengo", name: "ペンゴ",   role: "bruiser", rarity: 2, look: "penguin" },
+  // --- ★3（ガチャ・スキル持ち）---
+  { key: "drao",  name: "竜帝ドラオ", role: "bruiser", rarity: 3, look: "dragon", skill: "splash" },
+  { key: "noel",  name: "聖女ノエル", role: "healer",  rarity: 3, look: "sheep",
+    skin: { fluffy: "#fffce8", cheek: "#ffd0dc", halo: true, cape: "#fff0f5" }, skill: "aura_heal" },
+  { key: "vell",  name: "魔女ヴェル", role: "mage",    rarity: 3, look: "witch",
+    skin: { body: "#caa0ee", belly: "#ecd9ff", hatColor: "#2d1b5e", cape: "#7a4fc0" }, skill: "aura_atk" },
+  { key: "gareth", name: "騎士ガレス", role: "tank",   rarity: 3, look: "dog",
+    skin: { body: "#d8c87a", plume: "#ffd54a", cape: "#b03a3a" }, skill: "aura_guard" },
+  { key: "shino", name: "影丸シノ",   role: "assassin", rarity: 3, look: "cat",
+    skin: { body: "#3a3a48", maskNinja: true, band: "#a02828", cape: "#23232e" }, skill: "crit" },
+  { key: "bon",   name: "爆弾魔ボン", role: "bomber",  rarity: 3, look: "imp",
+    skin: { body: "#cfcf5a", belly: "#eeeeb0", weapon: "bomb", cape: "#d04a4a" }, skill: "explode" },
 ];
 
 const HERO_BY_KEY = {};
@@ -334,12 +347,17 @@ for (const h of HEROES) { HERO_BY_KEY[h.key] = h; HERO_KEYS.push(h.key); }
 const BASE_HERO_KEYS = HEROES.filter((h) => h.base).map((h) => h.key);
 const GACHA_POOL = HEROES.filter((h) => !h.base);
 
-function lookRadius(look) { return (look === "bear" || look === "golem" || look === "demon") ? 24 : 18; }
+function lookRadius(look) {
+  return (look === "bear" || look === "golem" || look === "demon" || look === "dragon" || look === "penguin") ? 24 : 18;
+}
 
 // ヒーロー所持・限界突破
+// 基本ヒーローはステージクリア数で解放、ガチャヒーローは引いたら所持
 function isHeroOwned(key) {
   const h = HERO_BY_KEY[key];
-  return !!h && (h.base || !!save.heroes[key]);
+  if (!h) return false;
+  if (h.base) return clearedCount() >= (h.unlock || 0);
+  return !!save.heroes[key];
 }
 function heroLb(key) { return (save.heroes[key] && save.heroes[key].lb) || 0; }
 function ownedHeroKeys() { return HERO_KEYS.filter(isHeroOwned); }
@@ -348,11 +366,13 @@ function ownedHeroKeys() { return HERO_KEYS.filter(isHeroOwned); }
 function lbMult(lb) { return 1 + 0.05 * lb; }
 
 // ヒーロー → 戦闘用スペック
+// 基本ヒーローはロール雛形そのまま（campaign の従来バランスを維持）、
+// ガチャヒーローはレア度倍率がかかる。
 function heroSpec(key, lb = 0) {
   const h = HERO_BY_KEY[key];
   const tpl = ROLE_TPL[h.role];
   const rar = RARITY[h.rarity];
-  const m = rar.mult * lbMult(lb);
+  const m = (h.base ? 1 : rar.mult) * lbMult(lb);
   const spec = {
     key: h.key, name: h.name, look: h.look, skin: h.skin || null,
     role: h.role, rarity: h.rarity, skill: h.skill || null,
@@ -360,7 +380,7 @@ function heroSpec(key, lb = 0) {
     hp: Math.round(tpl.hp * m),
     atk: Math.round(tpl.atk * m),
     range: tpl.range, interval: tpl.interval, speed: tpl.speed,
-    cost: Math.max(20, Math.round((tpl.cost * rar.costMult) / 5) * 5),
+    cost: h.base ? tpl.cost : Math.max(20, Math.round((tpl.cost * rar.costMult) / 5) * 5),
     cd: tpl.cd,
     proj: tpl.proj || null,
     aoe: tpl.aoe || 0,
@@ -424,7 +444,13 @@ const DECK_SIZE = 6;
 function ensureDeck() {
   if (!Array.isArray(save.deck)) save.deck = [];
   save.deck = save.deck.filter((k) => HERO_BY_KEY[k] && isHeroOwned(k));
-  if (save.deck.length === 0) save.deck = BASE_HERO_KEYS.slice(0, DECK_SIZE);
+  // 空っぽのときだけ、所持している基本ヒーローで自動編成する
+  if (save.deck.length === 0) {
+    for (const k of BASE_HERO_KEYS) {
+      if (save.deck.length >= DECK_SIZE) break;
+      if (isHeroOwned(k)) save.deck.push(k);
+    }
+  }
   save.deck = save.deck.slice(0, DECK_SIZE);
 }
 function deckSpecs(entries) {
@@ -434,6 +460,18 @@ function deckSpecs(entries) {
 function myDeckSpecs() {
   ensureDeck();
   return deckSpecs(save.deck.map((k) => ({ key: k, lb: heroLb(k) })));
+}
+// campaign 用：デッキにゴールド強化（ユニットレベル）を上乗せした最終スペック
+function campaignDeckSpecs() {
+  ensureDeck();
+  return save.deck.map((k) => {
+    const sp = heroSpec(k, heroLb(k));
+    const m = unitStatMult(k);
+    sp.hp = Math.round(sp.hp * m);
+    sp.atk = Math.round(sp.atk * m);
+    if (sp.heal) sp.heal = Math.round(sp.heal * m);
+    return sp;
+  });
 }
 
 /* ---- 対戦コード（共有・URL） ---- */
@@ -520,6 +558,8 @@ const LOOKS = {
   golem:  { body: "#8d8d99", rocky: true, big: true },
   witch:  { body: "#b07fd4", belly: "#d9c2ef", hat: "witch",  weapon: "staff" },
   demon:  { body: "#8a3ab5", belly: "#b977dd", horns: true,   wings: true, weapon: "club", big: true, fang: true },
+  dragon: { body: "#e8b84a", belly: "#ffe9b0", horns: true,   wings: true, tail: "dragon", big: true, fang: true },
+  penguin:{ body: "#5b6b86", belly: "#f4f8ff", beak: true,    flipper: true },
 };
 
 function shade(hex, f) {
@@ -565,6 +605,33 @@ function drawCharacter(ctx, look, r, o) {
     ctx.moveTo(-r * 0.8, cy + r * 0.5);
     ctx.quadraticCurveTo(-r * 1.5, cy + r * 0.2, -r * 1.3, cy - r * 0.5 + walk * 2);
     ctx.stroke();
+  } else if (L.tail === "dragon") {
+    // ドラゴンの太いしっぽ＋先端スパイク
+    ctx.fillStyle = shade(L.body, 0.85);
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.4, cy + r * 0.45);
+    ctx.quadraticCurveTo(-r * 1.6, cy + r * 0.45, -r * 1.75, cy - r * 0.15 + walk * 2);
+    ctx.quadraticCurveTo(-r * 1.25, cy + r * 0.95, -r * 0.25, cy + r * 0.85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = L.belly || "#ffe9b0";
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.75, cy - r * 0.1 + walk * 2);
+    ctx.lineTo(-r * 1.95, cy - r * 0.45 + walk * 2);
+    ctx.lineTo(-r * 1.5, cy - r * 0.3 + walk * 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // マント（体の後ろにひらり）
+  if (L.cape) {
+    ctx.fillStyle = L.cape;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.15, cy - r * 0.6);
+    ctx.quadraticCurveTo(-r * 1.25, cy + r * 0.1 + walk * 2.5, -r * 0.95, cy + r * 0.95);
+    ctx.lineTo(-r * 0.2, cy + r * 0.7);
+    ctx.closePath();
+    ctx.fill();
   }
 
   // 羽（こうもり・デーモン）
@@ -655,6 +722,20 @@ function drawCharacter(ctx, look, r, o) {
     }
   }
 
+  // フリッパー（ペンギンの小さな羽）
+  if (L.flipper) {
+    ctx.fillStyle = shade(L.body, 0.8);
+    for (const s of [-1, 1]) {
+      ctx.save();
+      ctx.translate(s * r * 0.92, cy + r * 0.1);
+      ctx.rotate(s * (0.45 + walk * 0.25));
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.2, r * 0.5, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   // 耳・角
   ctx.fillStyle = L.jelly ? L.body : shade(L.body, 0.92);
   const earY = cy - r * 0.75;
@@ -715,9 +796,27 @@ function drawCharacter(ctx, look, r, o) {
     }
   }
 
+  // おはな（頭の横）
+  if (L.flower) {
+    ctx.save();
+    ctx.translate(-r * 0.52, earY - r * 0.12);
+    ctx.fillStyle = L.flower;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * r * 0.14, Math.sin(a) * r * 0.14, r * 0.11, 0, TAU);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#ffd54a";
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.09, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
   // 帽子
   if (L.hat === "wizard" || L.hat === "witch") {
-    const hc = L.hat === "witch" ? "#5e3a8c" : "#4a3aa8";
+    const hc = L.hatColor || (L.hat === "witch" ? "#5e3a8c" : "#4a3aa8");
     ctx.fillStyle = hc;
     ctx.beginPath();
     ctx.ellipse(0, earY + r * 0.05, r * 0.85, r * 0.22, 0, 0, TAU);
@@ -734,6 +833,15 @@ function drawCharacter(ctx, look, r, o) {
     ctx.fill();
   }
 
+  // 天使の輪（ふわふわ浮く）
+  if (L.halo) {
+    ctx.strokeStyle = "#ffd54a";
+    ctx.lineWidth = r * 0.12;
+    ctx.beginPath();
+    ctx.ellipse(0, earY - r * 0.75 + Math.sin(t * 2.5) * r * 0.06, r * 0.5, r * 0.15, 0, 0, TAU);
+    ctx.stroke();
+  }
+
   // ヘルメット（ぽち）
   if (L.helmet) {
     ctx.fillStyle = "#7d8aa5";
@@ -742,6 +850,26 @@ function drawCharacter(ctx, look, r, o) {
     ctx.fill();
     ctx.fillStyle = "#9aa8c4";
     ctx.fillRect(-r * 0.78, cy - r * 0.3, r * 1.56, r * 0.14);
+    // とさか飾り（騎士のクレスト）
+    if (L.plume) {
+      ctx.fillStyle = L.plume;
+      ctx.beginPath();
+      ctx.ellipse(0, cy - r * 1.0, r * 0.42, r * 0.18, 0, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  // はちまき
+  if (L.band) {
+    ctx.fillStyle = L.band;
+    ctx.fillRect(-r * 0.8, cy - r * 0.62, r * 1.6, r * 0.2);
+    // 結び目のひらひら
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.78, cy - r * 0.52);
+    ctx.lineTo(-r * 1.15, cy - r * 0.42 + walk * 1.5);
+    ctx.lineTo(-r * 0.95, cy - r * 0.7);
+    ctx.closePath();
+    ctx.fill();
   }
 
   // 顔
@@ -768,11 +896,18 @@ function drawCharacter(ctx, look, r, o) {
       ctx.ellipse(ex * 0.4 + ex * s, eyeY, r * 0.11, r * 0.14 * blink, 0, 0, TAU);
       ctx.fill();
     }
-    // 口
+    // 口（ペンギンはくちばし）
     ctx.strokeStyle = "#2c2333";
     ctx.lineWidth = r * 0.07;
     ctx.beginPath();
-    if (L.fang) {
+    if (L.beak) {
+      ctx.fillStyle = "#ff9d2e";
+      ctx.moveTo(r * 0.35, cy + r * 0.02);
+      ctx.lineTo(r * 0.85, cy + r * 0.14);
+      ctx.lineTo(r * 0.38, cy + r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    } else if (L.fang) {
       ctx.moveTo(r * 0.45, cy + r * 0.28);
       ctx.lineTo(r * 0.75, cy + r * 0.22);
       ctx.stroke();
@@ -795,6 +930,59 @@ function drawCharacter(ctx, look, r, o) {
       ctx.fill();
       ctx.globalAlpha /= 0.7;
     }
+  }
+
+  // 顔のアクセサリー（眼帯・メガネ・ゴーグル・忍びマスク）
+  if (L.eyepatch) {
+    const px = ex * 1.4; // 前側の目
+    ctx.fillStyle = "#23232e";
+    ctx.beginPath();
+    ctx.ellipse(px, eyeY, r * 0.18, r * 0.2, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = "#23232e";
+    ctx.lineWidth = r * 0.06;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.8, eyeY - r * 0.32);
+    ctx.lineTo(px - r * 0.08, eyeY - r * 0.16);
+    ctx.stroke();
+  }
+  if (L.glasses || L.goggles) {
+    const x1 = ex * 0.45;
+    const x2 = ex * 1.4;
+    const gr = r * 0.19;
+    if (L.goggles) {
+      ctx.strokeStyle = "#3a3a48";
+      ctx.lineWidth = r * 0.07;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.8, eyeY);
+      ctx.lineTo(x1 - gr, eyeY);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(120, 220, 255, 0.55)";
+      for (const gx of [x1, x2]) {
+        ctx.beginPath();
+        ctx.arc(gx, eyeY, gr, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = "#5a4634";
+      ctx.lineWidth = r * 0.06;
+      for (const gx of [x1, x2]) {
+        ctx.beginPath();
+        ctx.arc(gx, eyeY, gr, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(x1 + gr, eyeY);
+      ctx.lineTo(x2 - gr, eyeY);
+      ctx.stroke();
+    }
+  }
+  if (L.maskNinja) {
+    ctx.fillStyle = "#23232e";
+    ctx.beginPath();
+    ctx.ellipse(r * 0.4, cy + r * 0.3, r * 0.58, r * 0.32, 0, 0, TAU);
+    ctx.fill();
   }
 
   // 武器・盾
@@ -865,6 +1053,30 @@ function drawCharacter(ctx, look, r, o) {
       ctx.fill();
     }
     ctx.restore();
+  } else if (L.weapon === "bomb") {
+    ctx.save();
+    ctx.translate(handX, handY - r * 0.15);
+    ctx.rotate(-0.2 + atk * 0.9);
+    ctx.fillStyle = "#2c2333";
+    ctx.beginPath();
+    ctx.arc(0, -r * 0.3, r * 0.34, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.beginPath();
+    ctx.arc(-r * 0.1, -r * 0.4, r * 0.1, 0, TAU);
+    ctx.fill();
+    // 導火線と火花
+    ctx.strokeStyle = "#8b6230";
+    ctx.lineWidth = r * 0.07;
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.62);
+    ctx.quadraticCurveTo(r * 0.15, -r * 0.8, r * 0.05, -r * 0.92);
+    ctx.stroke();
+    ctx.fillStyle = atk > 0.2 ? "#ffd54a" : "#ff9d5c";
+    ctx.beginPath();
+    ctx.arc(r * 0.05, -r * 0.95, r * (0.08 + Math.abs(Math.sin(t * 12)) * 0.06), 0, TAU);
+    ctx.fill();
+    ctx.restore();
   }
   if (L.shield) {
     ctx.save();
@@ -912,15 +1124,6 @@ const ARENA_TOWER_HP = 2600;
 const ARENA_START_MANA = 120;
 const ARENA_TIME = 150;     // 制限時間（秒）。タイムアップ時はとりで残量で判定
 
-// campaign ユニット → ゴールド強化を反映した最終スペック
-function campaignUnitSpec(u) {
-  const m = unitStatMult(u.key);
-  return Object.assign({}, u, {
-    hp: Math.round(u.hp * m),
-    atk: Math.round(u.atk * m),
-    heal: u.heal ? Math.round(u.heal * m) : 0,
-  });
-}
 
 class Fighter {
   constructor(spec, side, x, mult) {
@@ -1067,9 +1270,10 @@ class Battle {
         })();
     this.nextMiniBoss = 75;                 // エンドレス：定期的にボス級が出現
 
-    // 自軍（プレイヤー）のデッキ＝カード列
-    this.roster = this.arena ? (opts.playerSpecs || myDeckSpecs()) : UNITS.map((u) => campaignUnitSpec(u));
-    this.locked = this.arena ? this.roster.map(() => false) : UNITS.map((u) => !isUnitUnlocked(u));
+    // 自軍（プレイヤー）のデッキ＝カード列。
+    // campaign はゴールド強化込み、アリーナは素のヒーロー性能（公平性のため）
+    this.roster = opts.playerSpecs || (this.arena ? myDeckSpecs() : campaignDeckSpecs());
+    this.locked = this.roster.map(() => false);
     this.cardCd = this.roster.map(() => 0);
 
     // マナ（自軍）
@@ -2128,7 +2332,7 @@ function paintIcon(cv, look, r, skin = null) {
   drawCharacter(c, look, r, { t: 0.6, moving: false, attackT: -1, deadT: -1, flash: 0, skin });
 }
 
-/* ---- ユニットカード（campaign は UNITS、arena はデッキスペックから生成）---- */
+/* ---- ユニットカード（編成したデッキから生成。campaign / arena 共通）---- */
 const cardEls = [];
 function buildCards() {
   const b = game.battle;
@@ -2136,30 +2340,23 @@ function buildCards() {
   row.innerHTML = "";
   cardEls.length = 0;
 
-  const specs = b ? b.roster : UNITS;
+  const specs = b ? b.roster : campaignDeckSpecs();
   specs.forEach((sp, i) => {
-    const locked = b ? b.locked[i] : !isUnitUnlocked(sp);
     const lvLabel = b && b.arena
       ? (sp.skill ? SKILLS[sp.skill].icon : (sp.rarity ? "★".repeat(sp.rarity) : ""))
-      : (locked ? "" : `Lv${unitLevel(sp.key)}`);
-    const costLabel = locked
-      ? (b && b.arena ? "" : `ステージ${sp.unlock}クリア`)
-      : sp.cost;
+      : `${sp.skill ? SKILLS[sp.skill].icon : ""}Lv${unitLevel(sp.key)}`;
     const btn = document.createElement("button");
-    btn.className = "unit-card" + (locked ? " locked" : "");
+    btn.className = "unit-card";
     btn.innerHTML = `
       <span class="u-lv">${lvLabel}</span>
       <canvas></canvas>
       <span class="u-name">${sp.name}</span>
-      <span class="u-cost">${costLabel}</span>
-      ${locked ? '<span class="u-lock">🔒</span>' : ""}
+      <span class="u-cost">${sp.cost}</span>
       <div class="cd-mask"></div>`;
-    if (!locked) {
-      btn.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        if (game.mode === "battle") game.battle.summon(i);
-      });
-    }
+    btn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      if (game.mode === "battle") game.battle.summon(i);
+    });
     row.appendChild(btn);
     paintIcon(btn.querySelector("canvas"), sp.look, sp.r || 18, sp.skin || null);
     cardEls.push(btn);
@@ -2245,26 +2442,35 @@ function buildStageGrid() {
   $("gold-label").textContent = save.gold;
 }
 
-/* ---- 強化 ---- */
+/* ---- 強化（ゴールドで所持ヒーローをレベルアップ。campaign に反映）---- */
 function buildUpgradeList() {
   const list = $("upgrade-list");
   list.innerHTML = "";
   $("upgrade-gold-label").textContent = save.gold;
-  for (const u of UNITS) {
-    const lv = unitLevel(u.key);
-    const cost = upgradeCost(u.key);
+  // 所持ヒーロー（デッキ入り→レア度順）＋未解放の基本ヒーロー（ティザー表示）
+  const rows = [...HEROES].filter((h) => isHeroOwned(h.key) || h.base);
+  rows.sort((a, b) => {
+    const ad = save.deck.includes(a.key) ? 0 : 1;
+    const bd = save.deck.includes(b.key) ? 0 : 1;
+    return ad - bd || b.rarity - a.rarity;
+  });
+  for (const h of rows) {
+    const locked = !isHeroOwned(h.key);
+    const lv = unitLevel(h.key);
+    const cost = upgradeCost(h.key);
     const maxed = lv >= MAX_UNIT_LV;
-    const locked = !isUnitUnlocked(u);
-    const m = unitStatMult(u.key);
+    const sp = heroSpec(h.key, heroLb(h.key));
+    const m = unitStatMult(h.key);
+    const inDeck = save.deck.includes(h.key);
     const row = document.createElement("div");
     row.className = "up-row";
     if (locked) row.style.opacity = "0.55";
     row.innerHTML = `
       <canvas></canvas>
       <div class="up-info">
-        <div class="nm">${locked ? "？？？" : u.name} <small>${locked ? "" : `Lv${lv}`}</small></div>
-        <div class="desc">${locked ? `ステージ${u.unlock}をクリアすると仲間になる` : u.desc}</div>
-        <div class="st">${locked ? "" : `HP ${Math.round(u.hp * m)} ／ こうげき ${Math.round((u.heal || u.atk) * m)}${u.heal ? "(回復)" : ""}`}</div>
+        <div class="nm">${locked ? "？？？" : h.name} <small>${locked ? "" : `Lv${lv}${inDeck ? "・デッキ" : ""}`}</small></div>
+        <div class="desc">${locked ? `ステージ${h.unlock}をクリアすると仲間になる` : `${starHtml(h.rarity)} ${ROLE_DESC[h.role]}${h.skill ? `　${SKILLS[h.skill].icon}${SKILLS[h.skill].name}` : ""}`}</div>
+        <div class="st">${locked ? "" : `HP ${Math.round(sp.hp * m)} ／ こうげき ${Math.round((sp.heal || sp.atk) * m)}${sp.heal ? "(回復)" : ""}`}</div>
       </div>
       <button class="up-btn">${locked ? "🔒" : maxed ? "MAX" : `🪙 ${cost}`}</button>`;
     const btn = row.querySelector(".up-btn");
@@ -2272,14 +2478,14 @@ function buildUpgradeList() {
     btn.addEventListener("click", () => {
       if (locked || maxed || save.gold < cost) return;
       save.gold -= cost;
-      save.unitLv[u.key] = lv + 1;
+      save.unitLv[h.key] = lv + 1;
       persist();
       SFX.manaUp();
       buildUpgradeList();
     });
     list.appendChild(row);
     if (locked) row.querySelector("canvas").style.filter = "grayscale(1) brightness(0.4)";
-    paintIcon(row.querySelector("canvas"), u.look, u.r || 18);
+    paintIcon(row.querySelector("canvas"), h.look, lookRadius(h.look), h.skin || null);
   }
 }
 
@@ -2363,10 +2569,14 @@ function finishBattle() {
 
     // このクリアで新ユニットやモードが解放されたか
     const nowCleared = clearedCount();
-    const unlockedUnit = firstClear ? UNITS.find((u) => u.unlock === nowCleared) : null;
+    const unlockedUnit = firstClear ? HEROES.find((h) => h.base && (h.unlock || 0) === nowCleared) : null;
     const unlockedEndless = firstClear && nowCleared === ENDLESS_UNLOCK;
     let unlockMsg = "";
-    if (unlockedUnit) unlockMsg += `<br />🎉 新ユニット「${unlockedUnit.name}」が仲間になった！`;
+    if (unlockedUnit) {
+      // 仲間になったらデッキに空きがあれば自動で加える
+      if (save.deck.length < DECK_SIZE && !save.deck.includes(unlockedUnit.key)) save.deck.push(unlockedUnit.key);
+      unlockMsg += `<br />🎉 新ユニット「${unlockedUnit.name}」が仲間になった！（デッキに追加）`;
+    }
     if (unlockedEndless) unlockMsg += `<br />🌀 エンドレスモードが解放された！`;
 
     $("result-title").textContent = "ステージクリア！";
@@ -2604,7 +2814,7 @@ function openCollection() {
       <div class="hc-star">${owned ? starHtml(h.rarity) : "🔒"}</div>
       <canvas></canvas>
       <div class="hc-name">${owned ? h.name : "？？？"}</div>
-      <div class="hc-meta">${owned ? `⚔${heroPower(h.key, lb)}${lb ? ` +${lb}` : ""}` : `${RARITY[h.rarity].name}`}</div>
+      <div class="hc-meta">${owned ? `⚔${heroPower(h.key, lb)}${lb ? ` +${lb}` : ""}` : h.base ? `ステージ${h.unlock}で解放` : `${RARITY[h.rarity].name}`}</div>
       ${owned && h.skill ? `<div class="hc-skill">${SKILLS[h.skill].icon}</div>` : ""}
       ${inDeck ? '<div class="hc-in">✓</div>' : ""}`;
     if (owned) {
