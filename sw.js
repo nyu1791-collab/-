@@ -1,11 +1,13 @@
 /* つづける — Service Worker
  * オフライン動作のための簡易キャッシュ。バージョンを上げると更新が反映される。
  */
-const CACHE = "tsuzukeru-v4";
+const CACHE = "tsuzukeru-v9";
 const ASSETS = [
   "./",
   "./index.html",
   "./morning.html",
+  "./rangers.html",
+  "./rangers.js",
   "./stats.html",
   "./landing.html",
   "./shots.html",

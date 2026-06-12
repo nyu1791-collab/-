@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#2b1d4f" />
+  <title>ゆるレンジャー — みんなで進撃ディフェンス</title>
+  <meta name="description" content="ゆるかわユニットを召喚して敵のとりでを撃破！横スクロール型ディフェンスゲーム。" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <style>
+    :root {
+      --hud-h: 118px;
+      --panel: #2b1d4f;
+      --panel-2: #3a2a68;
+      --panel-3: #4c3a85;
+      --accent: #ffd54a;
+      --accent-2: #7ce7a2;
+      --danger: #ff6b81;
+      --text: #fdf8ff;
+      --muted: #b9aee0;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overscroll-behavior: none; }
+    body {
+      font-family: "Hiragino Maru Gothic ProN", "BIZ UDGothic", "Yu Gothic", system-ui, sans-serif;
+      background: #1a1133;
+      color: var(--text);
+      overflow: hidden;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    button { font-family: inherit; color: inherit; border: none; background: none; cursor: pointer; }
+
+    #stage-wrap {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+    }
+    #field-wrap { position: relative; flex: 1; min-height: 0; }
+    #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+    /* ===== 戦闘中の上部ボタン ===== */
+    #battle-top {
+      position: absolute; top: calc(8px + env(safe-area-inset-top)); right: 10px;
+      display: none; gap: 8px; z-index: 5;
+    }
+    #battle-top button {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: rgba(26, 17, 51, 0.72); color: var(--text);
+      font-size: 18px; font-weight: 700;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(4px);
+    }
+    #battle-top button:active { transform: scale(0.93); }
+
+    /* ===== 戦闘HUD（下部） ===== */
+    #hud {
+      display: none; flex-direction: column; gap: 6px;
+      padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, var(--panel) 0%, #221542 100%);
+      border-top: 3px solid var(--panel-3);
+      z-index: 6;
+    }
+    #fever-bar {
+      height: 7px; border-radius: 4px; overflow: hidden;
+      background: #1c1238; border: 1px solid var(--panel-3);
+    }
+    #fever-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #ff6f3c, #ffd54a, #7ce7a2);
+      transition: width 150ms;
+    }
+    #fever-fill.active {
+      width: 100% !important;
+      background: linear-gradient(90deg, #ff5c8a, #ffd54a, #7ce7ff, #ff5c8a);
+      background-size: 200% 100%;
+      animation: feverFlow 0.8s linear infinite;
+    }
+    @keyframes feverFlow { to { background-position: 200% 0; } }
+    #mana-row { display: flex; align-items: center; gap: 8px; }
+    #mana-bar {
+      flex: 1; height: 22px; border-radius: 11px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      position: relative; overflow: hidden;
+    }
+    #mana-fill {
+      position: absolute; inset: 0; width: 0%;
+      background: linear-gradient(90deg, #4cc3ff, #7ce7ff);
+      border-radius: 9px;
+      transition: width 80ms linear;
+    }
+    #mana-text {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; color: #fff;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    }
+    #mana-up {
+      height: 34px; padding: 0 12px; border-radius: 10px;
+      background: linear-gradient(180deg, #5e48a8, #43307f);
+      border: 2px solid #7c64c9;
+      font-size: 12px; font-weight: 800; white-space: nowrap;
+    }
+    #mana-up:disabled { opacity: 0.45; }
+    #mana-up:not(:disabled):active { transform: scale(0.95); }
+
+    #card-row { display: flex; gap: 8px; align-items: stretch; }
+    .unit-card {
+      position: relative; flex: 1; min-width: 0;
+      border-radius: 12px; overflow: hidden;
+      background: linear-gradient(180deg, #46357c, #332459);
+      border: 2px solid #6a55b5;
+      padding: 4px 2px 3px;
+      display: flex; flex-direction: column; align-items: center; gap: 1px;
+      transition: filter 120ms;
+    }
+    .unit-card canvas { width: 42px; height: 42px; display: block; }
+    .unit-card .u-name { font-size: 10px; font-weight: 700; color: var(--muted); line-height: 1; }
+    .unit-card .u-cost {
+      font-size: 12px; font-weight: 900; color: var(--accent); line-height: 1.2;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.5);
+    }
+    .unit-card .cd-mask {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+      background: rgba(10, 5, 25, 0.7); pointer-events: none;
+    }
+    .unit-card.unaffordable { filter: grayscale(0.85) brightness(0.7); }
+    .unit-card:active:not(.unaffordable) { transform: scale(0.94); }
+    .unit-card .u-lv {
+      position: absolute; top: 2px; left: 4px;
+      font-size: 9px; font-weight: 800; color: #cdeaff;
+      text-shadow: 0 1px 1px rgba(0,0,0,0.7);
+    }
+    .unit-card.locked { filter: grayscale(1) brightness(0.5); }
+    .unit-card.locked .u-cost { color: var(--muted); font-size: 9px; }
+    .unit-card .u-lock {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%);
+      font-size: 20px; pointer-events: none;
+    }
+    #skill-btn {
+      width: 64px; border-radius: 12px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, #b3471d, #7d2c12);
+      border: 2px solid #ff9d5c;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      font-weight: 900;
+    }
+    #skill-btn .s-icon { font-size: 22px; line-height: 1; }
+    #skill-btn .s-label { font-size: 10px; }
+    #skill-btn .cd-mask {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+      background: rgba(10, 5, 25, 0.75); pointer-events: none;
+    }
+    #skill-btn:disabled { filter: grayscale(0.6) brightness(0.75); }
+    #skill-btn:not(:disabled):active { transform: scale(0.94); }
+
+    /* ===== オーバーレイ画面共通 ===== */
+    .screen {
+      position: absolute; inset: 0; z-index: 10;
+      display: none; flex-direction: column; align-items: center;
+      overflow-y: auto;
+      padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+      background: radial-gradient(120% 90% at 50% 0%, #43307f 0%, #241749 55%, #160e2e 100%);
+    }
+    .screen.visible { display: flex; }
+    .screen h1 { font-size: 38px; letter-spacing: 2px; text-shadow: 0 3px 0 #160e2e; }
+    .screen h2 { font-size: 20px; margin-bottom: 12px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin: 6px 0 22px; }
+
+    .big-btn {
+      display: block; width: min(320px, 86vw);
+      padding: 14px; margin: 8px 0; border-radius: 16px;
+      font-size: 17px; font-weight: 900; color: #3c2800;
+      background: linear-gradient(180deg, #ffe082, #ffc233);
+      border: 3px solid #fff3c2;
+      box-shadow: 0 4px 0 #a87b12;
+    }
+    .big-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #a87b12; }
+    .big-btn.secondary {
+      color: var(--text);
+      background: linear-gradient(180deg, #5e48a8, #43307f);
+      border-color: #8a73d4; box-shadow: 0 4px 0 #2a1c55;
+    }
+
+    #title-canvas { width: min(340px, 88vw); height: 170px; margin: 6px 0 4px; }
+
+    /* ===== ステージ選択 ===== */
+    .gold-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 999px; padding: 5px 14px;
+      font-weight: 900; color: var(--accent); font-size: 14px;
+      margin-bottom: 14px;
+    }
+    #stage-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 10px; width: min(420px, 92vw); margin-bottom: 18px;
+    }
+    .stage-node {
+      aspect-ratio: 1; border-radius: 14px;
+      background: linear-gradient(180deg, #46357c, #332459);
+      border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      font-weight: 900;
+    }
+    .stage-node .n { font-size: 20px; }
+    .stage-node .stars { font-size: 10px; letter-spacing: 1px; color: var(--accent); }
+    .stage-node .boss-mark { font-size: 10px; color: var(--danger); }
+    .stage-node.locked { filter: grayscale(0.9) brightness(0.55); }
+    .stage-node:not(.locked):active { transform: scale(0.94); }
+    .stage-node.endless {
+      grid-column: 1 / -1; aspect-ratio: auto; padding: 12px;
+      background: linear-gradient(180deg, #6a2a7c, #44195a);
+      border-color: #b677dd;
+    }
+    .stage-node.endless .n { font-size: 16px; }
+    .stage-node.endless .best { font-size: 11px; color: var(--muted); }
+
+    /* ===== 編成・強化 ===== */
+    #upgrade-list { width: min(440px, 94vw); display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .up-row {
+      display: flex; align-items: center; gap: 10px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 14px; padding: 8px 10px;
+    }
+    .up-row canvas { width: 48px; height: 48px; flex: none; }
+    .up-info { flex: 1; min-width: 0; }
+    .up-info .nm { font-weight: 900; font-size: 14px; }
+    .up-info .desc { font-size: 11px; color: var(--muted); }
+    .up-info .st { font-size: 11px; color: #cdeaff; margin-top: 2px; }
+    .up-btn {
+      flex: none; padding: 8px 10px; border-radius: 10px;
+      background: linear-gradient(180deg, #ffe082, #ffc233);
+      color: #3c2800; font-weight: 900; font-size: 12px;
+      border: 2px solid #fff3c2; min-width: 86px; text-align: center;
+    }
+    .up-btn:disabled { filter: grayscale(0.8) brightness(0.7); }
+    .up-btn:not(:disabled):active { transform: scale(0.95); }
+    .up-btns { display: flex; flex-direction: column; gap: 5px; }
+    .awaken-btn {
+      flex: none; padding: 6px 10px; border-radius: 10px;
+      background: linear-gradient(180deg, #b277ff, #7a3fd6);
+      color: #fff; font-weight: 900; font-size: 11px;
+      border: 2px solid #d9b8ff; min-width: 86px; text-align: center;
+    }
+    .awaken-btn:disabled { filter: grayscale(0.8) brightness(0.6); }
+    .awaken-btn:not(:disabled):active { transform: scale(0.95); }
+    .up-row.awakened { border-color: #b277ff; box-shadow: 0 0 10px rgba(178, 119, 255, 0.35); }
+
+    /* ===== 実績 ===== */
+    #achv-summary { color: var(--muted); font-size: 12px; margin-bottom: 12px; text-align: center; line-height: 1.7; }
+    #achv-list { width: min(440px, 94vw); display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .achv-row {
+      display: flex; align-items: center; gap: 12px;
+      background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 14px; padding: 10px 14px;
+    }
+    .achv-row.done { border-color: var(--accent); }
+    .achv-row .a-icon { font-size: 24px; flex: none; }
+    .achv-row .a-info { flex: 1; }
+    .achv-row .a-name { font-weight: 900; font-size: 14px; }
+    .achv-row .a-desc { font-size: 11px; color: var(--muted); }
+    .achv-row .a-state { flex: none; font-size: 18px; }
+    .achv-row:not(.done) { opacity: 0.6; }
+
+    /* ===== チュートリアル ===== */
+    #tutorial-overlay {
+      position: absolute; inset: 0; z-index: 20; display: none;
+      background: rgba(13, 7, 30, 0.55);
+      align-items: flex-end; justify-content: center;
+      padding-bottom: 18px;
+    }
+    #tutorial-overlay.visible { display: flex; }
+    #tutorial-box {
+      width: min(420px, 92vw);
+      background: #fffdf5; color: #3b2d55;
+      border-radius: 16px; border: 3px solid var(--accent);
+      padding: 14px 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    #tutorial-box .t-who { font-weight: 900; font-size: 12px; color: #8a6d1f; margin-bottom: 4px; }
+    #tutorial-box .t-text { font-size: 14px; line-height: 1.7; min-height: 3.4em; }
+    #tutorial-box .t-next { text-align: right; font-size: 12px; color: #8a6d1f; font-weight: 800; margin-top: 6px; animation: blinkNext 1.2s infinite; }
+    @keyframes blinkNext { 50% { opacity: 0.3; } }
+
+    /* ===== リザルト ===== */
+    #result-screen { justify-content: center; background: rgba(13, 7, 30, 0.88); backdrop-filter: blur(3px); }
+    #result-title { font-size: 34px; margin-bottom: 4px; }
+    #result-stars { font-size: 38px; letter-spacing: 6px; margin: 8px 0; }
+    #result-detail { color: var(--muted); font-size: 14px; margin-bottom: 18px; text-align: center; line-height: 1.7; }
+
+    /* ===== ポーズ ===== */
+    #pause-screen { justify-content: center; background: rgba(13, 7, 30, 0.82); }
+
+    .back-link { margin-top: auto; padding-top: 18px; }
+    .back-link a { color: var(--muted); font-size: 12px; }
+
+    /* ===== タイトルのボタン色 ===== */
+    .big-btn.arena {
+      color: #fff; background: linear-gradient(180deg, #7a5cff, #5a3fd6);
+      border-color: #b3a4ff; box-shadow: 0 4px 0 #3a268f;
+    }
+    .big-btn.gacha {
+      color: #4a2200; background: linear-gradient(180deg, #ff9d5c, #ff6f3c);
+      border-color: #ffd0b0; box-shadow: 0 4px 0 #b34418;
+    }
+    .title-row { display: flex; gap: 8px; width: min(320px, 86vw); }
+    .big-btn.half { width: auto; flex: 1; margin: 8px 0; }
+    .big-btn .sub { display: block; font-size: 12px; font-weight: 700; opacity: 0.85; margin-top: 2px; }
+
+    /* ===== ガチャ ===== */
+    #gacha-featured { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: min(440px, 94vw); margin-bottom: 14px; }
+    .feat-chip {
+      display: flex; flex-direction: column; align-items: center; width: 76px;
+      background: #1c1238; border: 2px solid var(--accent); border-radius: 12px; padding: 4px;
+    }
+    .feat-chip canvas { width: 42px; height: 42px; }
+    .feat-chip span { font-size: 10px; font-weight: 800; }
+    .feat-chip small { font-size: 8px; color: var(--muted); line-height: 1.1; text-align: center; }
+
+    #gacha-result {
+      position: absolute; inset: 0; z-index: 30; display: none;
+      background: rgba(13, 7, 30, 0.82); backdrop-filter: blur(3px);
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    #gacha-result.visible { display: flex; }
+    .gr-box {
+      width: min(440px, 94vw); max-height: 90%; overflow-y: auto;
+      background: radial-gradient(120% 90% at 50% 0%, #43307f, #241749);
+      border: 3px solid var(--accent); border-radius: 18px; padding: 16px; text-align: center;
+    }
+    .gr-box h3 { font-size: 20px; margin-bottom: 12px; }
+    #gacha-result-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+    @media (max-width: 380px) { #gacha-result-grid { grid-template-columns: repeat(4, 1fr); } }
+    .pull-cell {
+      position: relative; border-radius: 10px; padding: 4px 2px;
+      background: #1c1238; border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center; animation: pop 0.3s ease;
+    }
+    @keyframes pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .pull-cell.rar2 { border-color: var(--accent-2); }
+    .pull-cell.rar3 { border-color: var(--accent); box-shadow: 0 0 12px rgba(255, 213, 74, 0.7); }
+    .pull-cell canvas { width: 40px; height: 40px; }
+    .pull-name { font-size: 10px; font-weight: 800; line-height: 1; }
+    .pull-stars { font-size: 11px; }
+    .pull-tag { font-size: 9px; color: #ffd54a; font-weight: 800; }
+    .pull-skill { position: absolute; top: 2px; right: 3px; font-size: 13px; }
+
+    /* ===== デッキ帯 / コレクション ===== */
+    .deck-strip {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
+      width: min(440px, 94vw); margin-bottom: 8px;
+    }
+    .deck-strip.small { gap: 5px; }
+    .deck-slot {
+      aspect-ratio: 1; border-radius: 12px; position: relative;
+      background: linear-gradient(180deg, #46357c, #332459); border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .deck-slot.empty { background: #1c1238; border-style: dashed; }
+    .deck-slot canvas { width: 76%; height: 64%; }
+    .deck-slot span { font-size: 9px; font-weight: 800; line-height: 1; }
+    .deck-slot .plus { font-size: 20px; color: var(--muted); }
+    .deck-slot:not(.empty):active { transform: scale(0.92); }
+
+    #collection-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      width: min(460px, 96vw); margin-bottom: 14px;
+    }
+    @media (max-width: 380px) { #collection-grid { grid-template-columns: repeat(3, 1fr); } }
+    .hero-cell {
+      position: relative; border-radius: 12px; padding: 4px 2px 3px;
+      background: #1c1238; border: 2px solid #6a55b5;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    .hero-cell.rar2 { border-color: var(--accent-2); }
+    .hero-cell.rar3 { border-color: var(--accent); }
+    .hero-cell.locked { filter: grayscale(0.9) brightness(0.6); }
+    .hero-cell.indeck { box-shadow: 0 0 0 2px var(--accent) inset; }
+    .hero-cell canvas { width: 44px; height: 44px; }
+    .hero-cell .hc-star { font-size: 10px; height: 12px; }
+    .hero-cell .hc-name { font-size: 10px; font-weight: 800; line-height: 1; }
+    .hero-cell .hc-meta { font-size: 9px; color: #cdeaff; }
+    .hero-cell .hc-skill { position: absolute; top: 2px; right: 3px; font-size: 13px; }
+    .hero-cell .hc-in {
+      position: absolute; top: 2px; left: 3px; font-size: 11px; font-weight: 900; color: #160e2e;
+      background: var(--accent); border-radius: 50%; width: 16px; height: 16px; line-height: 16px;
+    }
+    .hero-cell:active:not(.locked) { transform: scale(0.93); }
+
+    /* ===== アリーナ ロビー ===== */
+    .arena-rankbox {
+      display: flex; gap: 10px; width: min(440px, 94vw); margin-bottom: 12px;
+    }
+    .arena-rankbox > div {
+      flex: 1; background: #1c1238; border: 2px solid var(--panel-3); border-radius: 14px;
+      padding: 8px; text-align: center;
+    }
+    .arena-rankbox .lbl { display: block; font-size: 10px; color: var(--muted); }
+    .arena-rankbox .val { display: block; font-size: 16px; font-weight: 900; color: var(--accent); }
+    .arena-card {
+      width: min(440px, 94vw); background: #1c1238; border: 2px solid var(--panel-3);
+      border-radius: 14px; padding: 10px 12px; margin: 6px 0 4px;
+    }
+    .arena-card .ac-title { font-size: 13px; font-weight: 800; margin-bottom: 8px; }
+    .ac-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .ac-label input { flex: 1; }
+    .code-box {
+      width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px;
+      background: #100a26; border: 2px solid var(--panel-3); color: var(--text);
+      font-size: 12px; font-family: monospace; margin-bottom: 8px;
+    }
+    .ac-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mini-btn {
+      flex: 1; min-width: 90px; padding: 9px 6px; border-radius: 10px;
+      background: linear-gradient(180deg, #5e48a8, #43307f); border: 2px solid #8a73d4;
+      color: var(--text); font-size: 12px; font-weight: 800;
+    }
+    .mini-btn.wide { width: 100%; flex: none; }
+    .mini-btn.primary { background: linear-gradient(180deg, #ffe082, #ffc233); color: #3c2800; border-color: #fff3c2; }
+    .mini-btn:active { transform: scale(0.96); }
+    input { font-family: inherit; }
+
+    /* ===== トースト ===== */
+    #toast {
+      position: absolute; left: 50%; bottom: 22%; transform: translate(-50%, 12px);
+      background: rgba(13, 7, 30, 0.92); color: #fff; border: 2px solid var(--accent);
+      padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 800;
+      z-index: 40; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+      max-width: 80vw; text-align: center;
+    }
+    #toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-height: 480px) {
+      :root { --hud-h: 96px; }
+      .unit-card canvas { width: 32px; height: 32px; }
+      .screen h1 { font-size: 28px; }
+      #title-canvas { height: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage-wrap">
+    <div id="field-wrap">
+      <canvas id="field"></canvas>
+
+      <div id="battle-top">
+        <button id="speed-btn" aria-label="ゲーム速度切り替え">x1</button>
+        <button id="pause-btn" aria-label="ポーズ">II</button>
+      </div>
+
+      <!-- タイトル -->
+      <section class="screen visible" id="title-screen">
+        <h1>ゆるレンジャー</h1>
+        <p class="subtitle">ゆるかわ部隊を召喚して、敵のとりでを撃破せよ！</p>
+        <canvas id="title-canvas" width="680" height="340"></canvas>
+        <button class="big-btn" id="start-btn">⚔️ ぼうけん（ストーリー）</button>
+        <button class="big-btn arena" id="arena-btn">🏟️ たいせん（PvP）</button>
+        <button class="big-btn gacha" id="gacha-btn">🎰 ガチャを回す</button>
+        <div class="title-row">
+          <button class="big-btn secondary half" id="collection-btn">📦 ずかん</button>
+          <button class="big-btn secondary half" id="title-upgrade-btn">⚒️ 強化</button>
+        </div>
+        <div class="title-row">
+          <button class="big-btn secondary half" id="achv-btn">🏅 実績</button>
+          <button class="big-btn secondary half" id="sound-btn">🔊 効果音</button>
+        </div>
+        <button class="big-btn secondary" id="bgm-btn">🎵 BGM：オン</button>
+        <p class="back-link"><a href="index.html">← つづける（習慣化アプリ）へ戻る</a></p>
+      </section>
+
+      <!-- ステージ選択 -->
+      <section class="screen" id="select-screen">
+        <h2>🗺️ ステージをえらぶ</h2>
+        <div class="gold-chip">🪙 <span id="gold-label">0</span> G</div>
+        <div id="stage-grid"></div>
+        <button class="big-btn secondary" id="select-upgrade-btn">部隊の強化</button>
+        <button class="big-btn secondary" id="select-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- 強化 -->
+      <section class="screen" id="upgrade-screen">
+        <h2>⚒️ 部隊の強化</h2>
+        <div class="gold-chip">🪙 <span id="upgrade-gold-label">0</span> G ／ 💠 <span id="upgrade-shards-label">0</span></div>
+        <p class="subtitle" style="margin:0 0 10px">💠覚醒石は ステージ★3初達成・アリーナ勝利・エンドレス生存 でもらえる。<br />Lv8のヒーローを<b>覚醒</b>させるとスキルを習得（★3は「真」スキルに進化）！</p>
+        <div id="upgrade-list"></div>
+        <button class="big-btn secondary" id="upgrade-back-btn">もどる</button>
+      </section>
+
+      <!-- 実績 -->
+      <section class="screen" id="achv-screen">
+        <h2>🏅 実績ずかん</h2>
+        <p id="achv-summary"></p>
+        <div id="achv-list"></div>
+        <button class="big-btn secondary" id="achv-back-btn">もどる</button>
+      </section>
+
+      <!-- チュートリアル -->
+      <div id="tutorial-overlay">
+        <div id="tutorial-box">
+          <div class="t-who">たいちょう みけ</div>
+          <div class="t-text" id="tutorial-text"></div>
+          <div class="t-next">タップしてつぎへ ▶</div>
+        </div>
+      </div>
+
+      <!-- ガチャ -->
+      <section class="screen" id="gacha-screen">
+        <h2>🎰 ガチャ</h2>
+        <div class="gold-chip">🔮 <span id="gacha-gems">0</span>　🪙 <span id="gacha-gold">0</span></div>
+        <p class="subtitle" style="margin:0 0 10px">★3確定まであと <b id="gacha-pity">50</b> 回／★3はスキルを覚える！</p>
+        <div id="gacha-featured"></div>
+        <button class="big-btn gacha" id="gacha-roll10">10連ガチャ<span class="sub"></span></button>
+        <button class="big-btn" id="gacha-roll1">1回ガチャ<span class="sub"></span></button>
+        <button class="big-btn secondary" id="gacha-exchange">🪙200 → 🔮10 に交換</button>
+        <button class="big-btn secondary" id="gacha-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- コレクション / 編成 -->
+      <section class="screen" id="collection-screen">
+        <h2>📦 ヒーローずかん＆編成</h2>
+        <div class="gold-chip">🔮 <span id="collection-gems">0</span></div>
+        <p class="subtitle" style="margin:0 0 6px">デッキ（タップで外す・最大6体）</p>
+        <div id="collection-deck" class="deck-strip"></div>
+        <p class="subtitle" style="margin:10px 0 6px">もちもの（タップでデッキに入れる）</p>
+        <div id="collection-grid"></div>
+        <button class="big-btn secondary" id="collection-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- アリーナ（PvP ロビー）-->
+      <section class="screen" id="arena-screen">
+        <h2>🏟️ アリーナ</h2>
+        <div class="arena-rankbox">
+          <div><span class="lbl">ランク</span><span id="arena-rank" class="val">ビギナー 1</span></div>
+          <div><span class="lbl">せんせき</span><span id="arena-record" class="val">0勝 0敗</span></div>
+        </div>
+
+        <p class="subtitle" style="margin:4px 0 6px">あなたのデッキ（⚔ 総合力 <b id="arena-deck-power">0</b>）</p>
+        <div id="arena-deck" class="deck-strip small"></div>
+        <button class="big-btn secondary" id="collection-btn-2">編成をかえる →</button>
+
+        <button class="big-btn arena" id="arena-ranked-btn">⚔️ ランクマッチ（CPU）</button>
+
+        <div class="arena-card">
+          <p class="ac-title">🔗 自分のチームを共有して対戦</p>
+          <label class="ac-label">なまえ
+            <input id="name-input" type="text" maxlength="12" placeholder="ゆうしゃ" />
+          </label>
+          <input id="arena-mycode" class="code-box" readonly />
+          <div class="ac-row">
+            <button class="mini-btn" id="arena-copy-code">コードをコピー</button>
+            <button class="mini-btn" id="arena-copy-link">リンクをコピー</button>
+            <button class="mini-btn primary" id="arena-share">共有する</button>
+          </div>
+        </div>
+
+        <div class="arena-card">
+          <p class="ac-title">🆚 もらったコードで挑戦</p>
+          <input id="arena-code-input" class="code-box" placeholder="ともだちの対戦コードを貼り付け" />
+          <button class="mini-btn primary wide" id="arena-challenge-btn">このチームに挑戦！</button>
+        </div>
+
+        <button class="big-btn secondary" id="arena-back-btn">タイトルへ</button>
+      </section>
+
+      <!-- ガチャ結果オーバーレイ -->
+      <div id="gacha-result">
+        <div class="gr-box">
+          <h3>✨ けっか ✨</h3>
+          <div id="gacha-result-grid"></div>
+          <button class="big-btn" id="gacha-result-close">とじる</button>
+          <button class="big-btn secondary" id="gacha-result-deck">📦 編成をたしかめる</button>
+        </div>
+      </div>
+
+      <!-- トースト -->
+      <div id="toast"></div>
+
+      <!-- リザルト -->
+      <section class="screen" id="result-screen">
+        <h1 id="result-title">クリア！</h1>
+        <div id="result-stars"></div>
+        <p id="result-detail"></p>
+        <button class="big-btn" id="result-next-btn">つぎのステージへ</button>
+        <button class="big-btn secondary" id="result-retry-btn">もういちど</button>
+        <button class="big-btn secondary" id="result-map-btn">ステージ選択へ</button>
+      </section>
+
+      <!-- ポーズ -->
+      <section class="screen" id="pause-screen">
+        <h1>ポーズ中</h1>
+        <button class="big-btn" id="resume-btn">たたかいに戻る</button>
+        <button class="big-btn secondary" id="giveup-btn">あきらめてステージ選択へ</button>
+      </section>
+    </div>
+
+    <!-- 戦闘HUD -->
+    <div id="hud">
+      <div id="fever-bar"><div id="fever-fill"></div></div>
+      <div id="mana-row">
+        <div id="mana-bar">
+          <div id="mana-fill"></div>
+          <div id="mana-text">0 / 0</div>
+        </div>
+        <button id="mana-up">⚡ マナ強化<br /><span id="mana-up-cost"></span></button>
+      </div>
+      <div id="card-row"></div>
+    </div>
+  </div>
+
+  <script src="rangers.js"></script>
+</body>
+</html>
