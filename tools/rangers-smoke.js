@@ -82,7 +82,8 @@ src += "\nglobalThis.__test = { Battle, Commander, ENEMIES, STAGES, STAGE_COUNT,
   " HEROES, HERO_BY_KEY, HERO_KEYS, BASE_HERO_KEYS, SKILLS, RARITY, ROLE_TPL, heroSpec, heroPower, DECK_SIZE," +
   " rollMany, rollOnce, grantHero, buildShareCode, parseShareCode, deckSpecs, myDeckSpecs, campaignDeckSpecs, ensureDeck," +
   " rivalDeck, makeRng, GACHA, isHeroOwned, heroLb, GACHA_POOL," +
-  " canAwaken, awakenHero, isAwakened, gainShards, AWAKEN_LV, AWAKEN_COST, ROLE_AWAKEN_SKILL };\n";
+  " canAwaken, awakenHero, isAwakened, gainShards, AWAKEN_LV, AWAKEN_COST, ROLE_AWAKEN_SKILL," +
+  " toggleDeckHero };\n";
 vm.runInContext(src, sandbox, { filename: "rangers.js" });
 const T = sandbox.__test;
 const { Battle, STAGE_COUNT, save } = T;
@@ -541,6 +542,24 @@ console.log("\n--- 覚醒 / 新スキル / フィーバー ---");
     if (b.over && b.over.win) awWins++;
   }
   check("覚醒デッキ vs 未覚醒デッキで勝ち越す（7戦4勝以上）", awWins >= 4, `${awWins}/${tries} 勝`);
+}
+
+/* 28) デッキ満員でも新ヒーローを「入れ替え」で使える（ガチャキャラが使えない問題の再発防止） */
+{
+  save.stars = {}; for (let i = 1; i <= STAGE_COUNT; i++) save.stars[i] = 1;
+  save.heroes = { drao: { lb: 0, dupes: 0 } }; save.awakened = {}; save.unitLv = {};
+  save.deck = [];
+  T.ensureDeck();   // 基本6体で満員
+  check("前提：デッキが基本6体で満員", save.deck.length === T.DECK_SIZE);
+  const msg = T.toggleDeckHero("drao");
+  check("満員でも自動入れ替えでデッキに入る", save.deck.includes("drao") && save.deck.length === T.DECK_SIZE, msg || "");
+  const b = new Battle(1, {});
+  b.mana = 999;
+  const idx = b.roster.findIndex((s) => s.key === "drao");
+  check("入れ替え後すぐ campaign で召喚できる", idx >= 0 && b.summon(idx));
+  // 外すのもトグルで
+  T.toggleDeckHero("drao");
+  check("もう一度タップで外せる", !save.deck.includes("drao"));
 }
 
 console.log(failures === 0 ? "\nすべてのチェックに合格 🎉" : `\n${failures} 件のチェックに失敗`);

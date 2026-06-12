@@ -3019,6 +3019,14 @@ function doRoll(n) {
   if (save.gems < cost) { toast("ジェムが足りない"); return; }
   save.gems -= cost;
   const results = rollMany(n);
+  // 新しく仲間になった子は、デッキに空きがあれば自動で編成する
+  ensureDeck();
+  for (const r of results) {
+    if (r.isNew && save.deck.length < DECK_SIZE && !save.deck.includes(r.key)) {
+      save.deck.push(r.key);
+      r.addedToDeck = true;
+    }
+  }
   persist();
   const best = Math.max(...results.map((r) => HERO_BY_KEY[r.key].rarity));
   best === 3 ? SFX.victory() : best === 2 ? SFX.manaUp() : SFX.summon();
@@ -3035,7 +3043,7 @@ function showGachaResults(results) {
       <canvas></canvas>
       <div class="pull-name">${h.name}</div>
       <div class="pull-stars">${starHtml(h.rarity)}</div>
-      <div class="pull-tag">${r.isNew ? "NEW!" : `限界突破+${r.lb}`}</div>
+      <div class="pull-tag">${r.isNew ? (r.addedToDeck ? "NEW!デッキIN" : "NEW!") : `限界突破+${r.lb}`}</div>
       ${h.skill ? `<div class="pull-skill">${SKILLS[h.skill].icon}</div>` : ""}`;
     grid.appendChild(cell);
     renderHeroIcon(cell.querySelector("canvas"), h.key);
@@ -3071,10 +3079,8 @@ function openCollection(from) {
     if (owned) {
       cell.addEventListener("click", () => {
         SFX.tap();
-        if (save.deck.includes(h.key)) { save.deck = save.deck.filter((k) => k !== h.key); }
-        else if (save.deck.length >= DECK_SIZE) { toast("デッキは6体まで"); return; }
-        else save.deck.push(h.key);
-        persist();
+        const msg = toggleDeckHero(h.key);
+        if (msg) toast(msg);
         openCollection();
       });
     }
@@ -3106,6 +3112,32 @@ function renderDeckStrip(containerId = "collection-deck") {
     strip.appendChild(slot);
     if (key) renderHeroIcon(slot.querySelector("canvas"), key);
   }
+}
+
+/* ---- デッキの出し入れ（コレクションのタップ）----
+ * 入っていれば外す。満員のときは一番よわい子と自動で入れ替える。
+ * 戻り値はトースト用メッセージ。 */
+function toggleDeckHero(key) {
+  ensureDeck();
+  if (save.deck.includes(key)) {
+    save.deck = save.deck.filter((k) => k !== key);
+    persist();
+    return null;
+  }
+  if (save.deck.length >= DECK_SIZE) {
+    let worst = null;
+    let worstP = Infinity;
+    for (const k of save.deck) {
+      const p = heroPower(k, heroLb(k), isAwakened(k));
+      if (p < worstP) { worstP = p; worst = k; }
+    }
+    save.deck[save.deck.indexOf(worst)] = key;
+    persist();
+    return `「${HERO_BY_KEY[worst].name}」と入れ替えたよ`;
+  }
+  save.deck.push(key);
+  persist();
+  return null;
 }
 
 /* ---- アリーナ ロビー ---- */
@@ -3211,6 +3243,7 @@ function wireUi() {
     SFX.manaUp(); openGacha();
   });
   $("gacha-result-close").addEventListener("click", () => { SFX.tap(); $("gacha-result").classList.remove("visible"); openGacha(); });
+  $("gacha-result-deck").addEventListener("click", () => { SFX.tap(); $("gacha-result").classList.remove("visible"); openCollection("title"); });
   tap("arena-ranked-btn", () => startArena(Object.assign(rivalDeck(save.arena.rank), { ranked: true })));
   tap("arena-challenge-btn", () => {
     const code = ($("arena-code-input").value || "").trim();
