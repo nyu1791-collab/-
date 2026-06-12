@@ -3054,6 +3054,7 @@ function showGachaResults(results) {
 /* ---- コレクション（デッキ編成）---- */
 function openCollection(from) {
   if (from) game.collectionFrom = from;
+  showScreen("collection-screen");
   ensureDeck();
   $("collection-gems").textContent = save.gems;
   renderDeckStrip();

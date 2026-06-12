@@ -28,8 +28,10 @@ function stubCtx() {
 function stubElement() {
   const el = {
     style: {},
+    dataset: {},          // 実ブラウザの DOMStringMap 相当（el.dataset.foo は常に安全）
     classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     children: [],
+    value: "",
     innerHTML: "",
     textContent: "",
     width: 100,
@@ -560,6 +562,50 @@ console.log("\n--- 覚醒 / 新スキル / フィーバー ---");
   // 外すのもトグルで
   T.toggleDeckHero("drao");
   check("もう一度タップで外せる", !save.deck.includes("drao"));
+}
+
+/* ============================================================
+ * UI 画面遷移：開く操作で必ずその画面が表示される
+ *   「図鑑が開かない／ガチャキャラを編成できない」不具合の再発防止。
+ *   ヘッドレスでは showScreen をスパイし、open系が正しい画面を出すか検証する。
+ *   （openCollection は showScreen("collection-screen") を呼んでおらず、図鑑が
+ *     開けない＝ガチャキャラをデッキに入れられない、という不具合があった）
+ * ============================================================ */
+console.log("\n--- UI 画面遷移 ---");
+{
+  const realShow = sandbox.showScreen;
+  const calls = [];
+  sandbox.showScreen = (id) => { calls.push(id); };
+  const opens = [
+    ["openCollection（ずかん／編成）", "collection-screen", () => sandbox.openCollection("title")],
+    ["openArena（アリーナ）",         "arena-screen",      () => sandbox.openArena()],
+    ["openGacha（ガチャ）",           "gacha-screen",      () => sandbox.openGacha()],
+  ];
+  for (const [name, want, fn] of opens) {
+    calls.length = 0;
+    let err = null;
+    try { fn(); } catch (e) { err = e; }
+    check(`${name} で ${want} が表示される`, !err && calls.includes(want),
+      err ? "例外: " + err.message : "showScreen=" + (calls.join(",") || "(呼ばれず)"));
+  }
+  sandbox.showScreen = realShow;
+}
+
+/* ガチャで引いた新ヒーローは、デッキに空きがあれば自動編成される。
+ * 満員でも「ずかん」からタップ1つで入れ替えできる（toggleDeckHero）。
+ * → ガチャキャラが戦闘で使えない状態にはならない。 */
+{
+  // 満員デッキに新ヒーローをタップで入れ替え→campaign の召喚列に必ず並ぶ
+  save.stars = {}; for (let i = 1; i <= STAGE_COUNT; i++) save.stars[i] = 1;
+  save.heroes = { vell: { lb: 0, dupes: 0 } }; save.awakened = {}; save.unitLv = {};
+  save.deck = [];
+  T.ensureDeck();                       // 基本6体で満員
+  T.toggleDeckHero("vell");             // 満員でも自動入れ替え
+  const inDeck = save.deck.includes("vell");
+  const b = new Battle(1, {});
+  const onCard = b.roster.some((s) => s.key === "vell");
+  check("ガチャキャラを編成すると campaign の召喚列に並ぶ", inDeck && onCard,
+    `deck=[${save.deck.join(",")}]`);
 }
 
 console.log(failures === 0 ? "\nすべてのチェックに合格 🎉" : `\n${failures} 件のチェックに失敗`);
