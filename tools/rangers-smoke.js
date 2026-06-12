@@ -81,7 +81,8 @@ let src = fs.readFileSync(path.join(__dirname, "..", "rangers.js"), "utf8");
 src += "\nglobalThis.__test = { Battle, Commander, ENEMIES, STAGES, STAGE_COUNT, save," +
   " HEROES, HERO_BY_KEY, HERO_KEYS, BASE_HERO_KEYS, SKILLS, RARITY, ROLE_TPL, heroSpec, heroPower, DECK_SIZE," +
   " rollMany, rollOnce, grantHero, buildShareCode, parseShareCode, deckSpecs, myDeckSpecs, campaignDeckSpecs, ensureDeck," +
-  " rivalDeck, makeRng, GACHA, isHeroOwned, heroLb, GACHA_POOL };\n";
+  " rivalDeck, makeRng, GACHA, isHeroOwned, heroLb, GACHA_POOL," +
+  " canAwaken, awakenHero, isAwakened, gainShards, AWAKEN_LV, AWAKEN_COST, ROLE_AWAKEN_SKILL };\n";
 vm.runInContext(src, sandbox, { filename: "rangers.js" });
 const T = sandbox.__test;
 const { Battle, STAGE_COUNT, save } = T;
@@ -417,6 +418,129 @@ function simulateNewbie(stage, deck) {
   });
   check("基本と同じ見た目のガチャヒーローは全員 装飾パーツ持ち", plain.length === 0,
     plain.length ? `色違いのみ: ${plain.map((h) => h.name).join(",")}` : "OK");
+}
+
+/* ============================================================
+ * 拡張：覚醒 / 新スキル（式神・こおり） / フィーバー
+ * ============================================================ */
+console.log("\n--- 覚醒 / 新スキル / フィーバー ---");
+
+/* 20) 覚醒：★1/★2 はロールスキルを習得、★3 は「真」(skillLv2) になる */
+{
+  const plain = T.heroSpec("wanko", 0, false);        // ★1 tank
+  const aw1 = T.heroSpec("wanko", 0, true);
+  check("覚醒した★1がスキルを習得する", !plain.skill && aw1.skill === "aura_guard" && aw1.skillLv === 1,
+    `素=${plain.skill} → 覚醒=${aw1.skill}`);
+  check("覚醒でステータスが上がる", aw1.hp > plain.hp, `HP ${plain.hp} → ${aw1.hp}`);
+  const aw3 = T.heroSpec("drao", 0, true);            // ★3
+  check("覚醒した★3は skillLv 2（真スキル）", aw3.skill === "splash" && aw3.skillLv === 2);
+  const norm3 = T.heroSpec("drao", 0, false);
+  check("未覚醒の★3は skillLv 1", norm3.skillLv === 1);
+}
+
+/* 21) 覚醒の条件と消費（Lv8 以上 + 覚醒石） */
+{
+  save.heroes = { drao: { lb: 0, dupes: 0 } };
+  save.awakened = {}; save.shards = 10; save.unitLv = { drao: 7 };
+  check("Lv7では覚醒できない", !T.canAwaken("drao"));
+  save.unitLv.drao = 8;
+  check("Lv8なら覚醒できる", T.canAwaken("drao"));
+  const before = save.shards;
+  check("覚醒すると覚醒石を消費する", T.awakenHero("drao") && save.shards === before - 5 && save.awakened.drao === true);
+  check("二重に覚醒できない", !T.canAwaken("drao"));
+}
+
+/* 22) 対戦コードに覚醒が載って往復する */
+{
+  save.heroes = { drao: { lb: 2, dupes: 2 } };
+  save.awakened = { drao: true };
+  save.deck = ["drao", "mike"];
+  const parsed = T.parseShareCode(T.buildShareCode());
+  check("対戦コードで覚醒フラグが伝わる", parsed && parsed.entries[0].aw === true && parsed.entries[1].aw === false);
+}
+
+/* 23) しきがみ召喚：式神が出る・3体まで・召喚枠を食わない */
+{
+  const deck = [{ key: "kyuu", lb: 0 }];
+  const b = new Battle(0, { arena: true, seed: 5, playerSpecs: T.deckSpecs(deck), oppSpecs: T.deckSpecs([{ key: "wanko" }]), oppName: "x" });
+  b.mana = 999;
+  b.summon(0);
+  for (let i = 0; i < 30 * 25; i++) b.update(1 / 30);   // 25秒
+  const minions = b.fighters.filter((f) => f.spec.minion && f.side === 1 && f.alive);
+  check("しきがみが召喚される", minions.length > 0, `${minions.length}体`);
+  check("しきがみは3体まで", minions.length <= 3);
+  check("しきがみは召喚枠を消費しない", b.sideAlive(1) <= 1, `本体カウント=${b.sideAlive(1)}`);
+}
+
+/* 24) こおりのいき：攻撃された敵が凍って遅くなる */
+{
+  const deck = [{ key: "frill", lb: 0 }];
+  const b = new Battle(0, { arena: true, seed: 6, playerSpecs: T.deckSpecs(deck), oppSpecs: T.deckSpecs([{ key: "gaado" }]), oppName: "x" });
+  b.mana = 999;
+  b.summon(0);
+  b.enemyCmd.mana = 999;
+  // 相手AIの代わりに直接出す
+  b.spawnFighter(T.heroSpec("gaado"), -1);
+  let chilledSeen = false;
+  for (let i = 0; i < 30 * 20; i++) {
+    b.update(1 / 30);
+    if (b.fighters.some((f) => f.side === -1 && f.alive && f.chillT > 0)) { chilledSeen = true; break; }
+  }
+  check("こおりのいきで敵が凍る", chilledSeen);
+}
+
+/* 25) フィーバー：ゲージが満タンで発動し、アリーナでは発生しない */
+{
+  save.deck = []; save.heroes = {}; save.awakened = {};
+  save.stars = {}; for (let i = 1; i <= STAGE_COUNT; i++) save.stars[i] = 1;
+  const b = new Battle(2, {});
+  b.fever = 99;
+  // 敵を1体出して倒す
+  b.spawnEnemy(T.ENEMIES.slime, 1, true);
+  const e = b.fighters.find((f) => f.side === -1);
+  e.takeDamage(99999, b);
+  check("撃破でフィーバーが発動する", b.feverT > 0 && b.fever === 0, `feverT=${b.feverT.toFixed(1)}秒`);
+  // フィーバー中はマナ回復が1.5倍
+  const baseRegen = 14 + (b.manaLv - 1) * 7;
+  check("フィーバー中はマナ回復1.5倍", Math.abs(b.manaRegen - baseRegen * 1.5) < 0.01);
+  // アリーナでは発動しない
+  const a = new Battle(0, { arena: true, seed: 9, playerSpecs: T.deckSpecs([{ key: "mike" }]), oppSpecs: T.deckSpecs([{ key: "mike" }]), oppName: "x" });
+  a.fever = 99;
+  a.spawnFighter(T.heroSpec("mike"), -1);
+  const ae = a.fighters.find((f) => f.side === -1);
+  ae.takeDamage(99999, a);
+  check("アリーナではフィーバーが発生しない", a.feverT === 0);
+}
+
+/* 26) 新★3込みの全スキル大乱闘が例外なく動き、決定論も保たれる */
+{
+  const all3 = ["drao", "noel", "vell", "gareth", "shino", "bon", "kyuu", "frill"];
+  const deckA = all3.slice(0, 6).map((k) => ({ key: k, lb: 4, aw: true }));
+  const deckB = all3.slice(2).map((k) => ({ key: k, lb: 4, aw: true }));
+  let crashed = null;
+  let r1 = null, r2 = null;
+  try {
+    r1 = simulateArenaCommanders(deckA, deckB, 777);
+    r2 = simulateArenaCommanders(deckA, deckB, 777);
+  } catch (e) { crashed = e; }
+  check("覚醒★3全部入り（式神・氷含む）対戦が例外なく動く", !crashed, crashed ? crashed.stack.split("\n")[0] : "OK");
+  check("式神・氷を含んでも決定論が保たれる", !crashed && r1.over && r2.over &&
+    r1.over.win === r2.over.win && Math.round(r1.playerTower.hp) === Math.round(r2.playerTower.hp),
+    !crashed && r1.over ? `${r1.over.win ? "勝ち" : "負け"} / 自塔${Math.round(r1.playerTower.hp)}` : "");
+}
+
+/* 27) 覚醒済みデッキは未覚醒の同デッキより強い（覚醒の意味がある） */
+{
+  const deck = ["gareth", "noel", "shino", "vell", "drao", "bon"];
+  let awWins = 0; const tries = 7;
+  for (let s = 0; s < tries; s++) {
+    const b = simulateArenaCommanders(
+      deck.map((k) => ({ key: k, lb: 0, aw: true })),
+      deck.map((k) => ({ key: k, lb: 0, aw: false })),
+      300 + s * 17);
+    if (b.over && b.over.win) awWins++;
+  }
+  check("覚醒デッキ vs 未覚醒デッキで勝ち越す（7戦4勝以上）", awWins >= 4, `${awWins}/${tries} 勝`);
 }
 
 console.log(failures === 0 ? "\nすべてのチェックに合格 🎉" : `\n${failures} 件のチェックに失敗`);

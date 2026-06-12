@@ -61,6 +61,9 @@ function defaultSave() {
     pulls: 0,                 // 総ガチャ回数
     playerName: "",           // 対戦コードに載せる名前
     gachaSeen: false,         // ガチャ画面を一度開いたか（バッジ表示用）
+    shards: 0,                // 💠覚醒石（覚醒に使う）
+    shardsEarned: 0,          // 通算獲得数（実績用）
+    awakened: {},             // { heroKey: true } 覚醒済みヒーロー
   };
 }
 
@@ -263,6 +266,7 @@ const ROLE_TPL = {
   mage:     { hp: 175, atk: 62, range: 215, interval: 1.9,  speed: 46, cost: 180, cd: 7.0, proj: "orb", aoe: 72 },
   bomber:   { hp: 200, atk: 80, range: 205, interval: 2.1,  speed: 46, cost: 205, cd: 8.0, proj: "orb", aoe: 98 },
   bruiser:  { hp: 680, atk: 96, range: 42,  interval: 1.7,  speed: 40, cost: 280, cd: 11.0, aoeMelee: true, knock: 30, r: 24 },
+  trickster:{ hp: 300, atk: 38, range: 170, interval: 1.3,  speed: 50, cost: 220, cd: 9.0, proj: "orb" },
 };
 
 // レア度ごとの倍率・色
@@ -272,15 +276,50 @@ const RARITY = {
   3: { mult: 1.2,  costMult: 1.12, color: "#ffd54a", glow: "#ff9d2e", name: "★★★" },
 };
 
-// ★3スキルの表示メタ（効果は applySkill 系で実装）
+// スキルの表示メタ（効果は Battle / Fighter 内で実装）
+// 覚醒した★3はスキルが「真」版（skillLv 2）になり、効果が強化される
 const SKILLS = {
-  splash:     { name: "りゅうせんぷう",   icon: "🌀", desc: "こうげきが周囲の敵にも当たる" },
-  aura_atk:   { name: "まりょくかいほう", icon: "✨", desc: "周囲の味方のこうげき +25%" },
-  aura_guard: { name: "ふくつのまもり",   icon: "🛡️", desc: "周囲の味方の被ダメージ -22%" },
-  aura_heal:  { name: "せいなるうた",     icon: "🎵", desc: "周囲の味方をすこしずつ回復" },
-  crit:       { name: "ひっさつのいちげき", icon: "⚡", desc: "3回に1回 2.2倍のダメージ" },
-  explode:    { name: "じばく",           icon: "💥", desc: "たおれる時、周囲へ大ダメージ" },
+  splash:     { name: "りゅうせんぷう",   icon: "🌀", desc: "こうげきが周囲の敵にも当たる（真：範囲拡大）" },
+  aura_atk:   { name: "まりょくかいほう", icon: "✨", desc: "周囲の味方のこうげき +25%（真：+40%）" },
+  aura_guard: { name: "ふくつのまもり",   icon: "🛡️", desc: "周囲の味方の被ダメージ -22%（真：-30%）" },
+  aura_heal:  { name: "せいなるうた",     icon: "🎵", desc: "周囲の味方をすこしずつ回復（真：回復量UP）" },
+  crit:       { name: "ひっさつのいちげき", icon: "⚡", desc: "3回に1回 2.2倍（真：2回に1回 2.6倍）" },
+  explode:    { name: "じばく",           icon: "💥", desc: "たおれる時、周囲へ大ダメージ（真：威力UP）" },
+  summon:     { name: "しきがみ召喚",     icon: "🦊", desc: "ちいさな式神を呼び出して戦わせる（真：召喚が速い）" },
+  freeze:     { name: "こおりのいき",     icon: "❄️", desc: "攻撃した敵をこおらせて鈍くする（真：長くこおる）" },
 };
+
+/* ---- 覚醒 ----
+ * 💠覚醒石（ステージ★3初達成／アリーナ勝利／エンドレス生存で獲得）を使い、
+ * Lv8 以上のヒーローを覚醒できる。
+ *   ★1/★2 … ロールに応じたスキルを習得 ＋ ステータス +8%
+ *   ★3   … スキルが「真」版に進化（skillLv 2）＋ ステータス +8%
+ */
+const AWAKEN_LV = 8;                       // 覚醒に必要なユニットLv
+const AWAKEN_COST = { 1: 2, 2: 3, 3: 5 };  // レア度ごとの覚醒石コスト
+const ROLE_AWAKEN_SKILL = {
+  melee: "crit", assassin: "crit", archer: "splash", tank: "aura_guard",
+  healer: "aura_heal", mage: "aura_atk", bomber: "explode", bruiser: "splash",
+  trickster: "summon",
+};
+function isAwakened(key) { return !!save.awakened[key]; }
+function awakenCost(key) { return AWAKEN_COST[HERO_BY_KEY[key].rarity]; }
+function canAwaken(key) {
+  return isHeroOwned(key) && !isAwakened(key) &&
+    unitLevel(key) >= AWAKEN_LV && save.shards >= awakenCost(key);
+}
+function awakenHero(key) {
+  if (!canAwaken(key)) return false;
+  save.shards -= awakenCost(key);
+  save.awakened[key] = true;
+  persist();
+  return true;
+}
+function gainShards(n) {
+  if (n <= 0) return;
+  save.shards += n;
+  save.shardsEarned += n;
+}
 
 // ロールの説明（強化画面・図鑑用）
 const ROLE_DESC = {
@@ -292,6 +331,7 @@ const ROLE_DESC = {
   mage:     "魔法で範囲こうげき",
   bomber:   "大爆発の広範囲こうげき",
   bruiser:  "強烈な一撃＋ふっとばし",
+  trickster:"式神をあやつる妖術つかい",
 };
 
 // ヒーロー図鑑。base:true は基本ヒーロー（unlock ステージクリアで仲間に）。
@@ -339,6 +379,8 @@ const HEROES = [
     skin: { body: "#3a3a48", maskNinja: true, band: "#a02828", cape: "#23232e" }, skill: "crit" },
   { key: "bon",   name: "爆弾魔ボン", role: "bomber",  rarity: 3, look: "imp",
     skin: { body: "#cfcf5a", belly: "#eeeeb0", weapon: "bomb", cape: "#d04a4a" }, skill: "explode" },
+  { key: "kyuu",  name: "九尾のキュウ", role: "trickster", rarity: 3, look: "fox",  skill: "summon" },
+  { key: "frill", name: "氷姫フリル",   role: "mage",      rarity: 3, look: "fairy", skill: "freeze" },
 ];
 
 const HERO_BY_KEY = {};
@@ -368,14 +410,17 @@ function lbMult(lb) { return 1 + 0.05 * lb; }
 // ヒーロー → 戦闘用スペック
 // 基本ヒーローはロール雛形そのまま（campaign の従来バランスを維持）、
 // ガチャヒーローはレア度倍率がかかる。
-function heroSpec(key, lb = 0) {
+function heroSpec(key, lb = 0, awake = false) {
   const h = HERO_BY_KEY[key];
   const tpl = ROLE_TPL[h.role];
   const rar = RARITY[h.rarity];
-  const m = (h.base ? 1 : rar.mult) * lbMult(lb);
+  const m = (h.base ? 1 : rar.mult) * lbMult(lb) * (awake ? 1.08 : 1);
+  // 覚醒：★1/★2はロールスキルを習得、★3は手持ちスキルが「真」(skillLv2)に
+  const skillKey = h.skill || (awake ? ROLE_AWAKEN_SKILL[h.role] : null);
   const spec = {
     key: h.key, name: h.name, look: h.look, skin: h.skin || null,
-    role: h.role, rarity: h.rarity, skill: h.skill || null,
+    role: h.role, rarity: h.rarity,
+    skill: skillKey, skillLv: h.skill && awake ? 2 : 1, awake: !!awake,
     r: tpl.r || lookRadius(h.look),
     hp: Math.round(tpl.hp * m),
     atk: Math.round(tpl.atk * m),
@@ -392,9 +437,9 @@ function heroSpec(key, lb = 0) {
 }
 
 // 図鑑用：強さの目安
-function heroPower(key, lb = 0) {
-  const s = heroSpec(key, lb);
-  return Math.round((s.hp * 0.1 + (s.atk + s.heal) / s.interval) * (s.skill ? 1.25 : 1));
+function heroPower(key, lb = 0, awake = false) {
+  const s = heroSpec(key, lb, awake);
+  return Math.round((s.hp * 0.1 + (s.atk + s.heal) / s.interval) * (s.skill ? 1.25 : 1) * (s.skillLv >= 2 ? 1.1 : 1));
 }
 
 /* ---- ガチャ ---- */
@@ -454,18 +499,18 @@ function ensureDeck() {
   save.deck = save.deck.slice(0, DECK_SIZE);
 }
 function deckSpecs(entries) {
-  // entries: [{key, lb}] → [spec]
-  return entries.map((e) => heroSpec(e.key, e.lb || 0));
+  // entries: [{key, lb, aw}] → [spec]
+  return entries.map((e) => heroSpec(e.key, e.lb || 0, !!e.aw));
 }
 function myDeckSpecs() {
   ensureDeck();
-  return deckSpecs(save.deck.map((k) => ({ key: k, lb: heroLb(k) })));
+  return deckSpecs(save.deck.map((k) => ({ key: k, lb: heroLb(k), aw: isAwakened(k) })));
 }
 // campaign 用：デッキにゴールド強化（ユニットレベル）を上乗せした最終スペック
 function campaignDeckSpecs() {
   ensureDeck();
   return save.deck.map((k) => {
-    const sp = heroSpec(k, heroLb(k));
+    const sp = heroSpec(k, heroLb(k), isAwakened(k));
     const m = unitStatMult(k);
     sp.hp = Math.round(sp.hp * m);
     sp.atk = Math.round(sp.atk * m);
@@ -491,7 +536,8 @@ function buildShareCode(deck = save.deck, name = playerName(), rank = save.arena
   ensureDeck();
   const payload = {
     v: 1, n: String(name).slice(0, 12), r: rank,
-    d: deck.map((k) => [HERO_KEYS.indexOf(k), heroLb(k)]).filter((p) => p[0] >= 0),
+    // [図鑑番号, 限界突破, 覚醒(0/1)] — 3要素目は旧バージョンでは無視される（互換）
+    d: deck.map((k) => [HERO_KEYS.indexOf(k), heroLb(k), isAwakened(k) ? 1 : 0]).filter((p) => p[0] >= 0),
   };
   return b64uEncode(JSON.stringify(payload));
 }
@@ -500,7 +546,7 @@ function parseShareCode(code) {
     const p = JSON.parse(b64uDecode(code.trim()));
     if (!p || p.v !== 1 || !Array.isArray(p.d)) return null;
     const entries = p.d
-      .map(([idx, lb]) => ({ key: HERO_KEYS[idx], lb: clamp(lb | 0, 0, 4) }))
+      .map(([idx, lb, aw]) => ({ key: HERO_KEYS[idx], lb: clamp(lb | 0, 0, 4), aw: aw === 1 }))
       .filter((e) => e.key && HERO_BY_KEY[e.key]);
     if (entries.length === 0) return null;
     return { name: String(p.n || "ライバル").slice(0, 12), rank: p.r | 0 || 1, entries: entries.slice(0, DECK_SIZE) };
@@ -523,6 +569,7 @@ function rivalDeck(rank) {
   const rng = makeRng(hashStr("rival#" + rank));
   const star3 = clamp(Math.floor((rank - 1) / 2), 0, 6);   // 上位ほど★3が増える
   const lb = clamp(Math.floor((rank - 1) / 4), 0, 4);
+  const awakenCount = clamp(Math.floor((rank - 7) / 2), 0, DECK_SIZE); // 上位ランクは覚醒済みで来る
   const wantRoles = ["tank", "healer", "archer", "mage", "melee", "bruiser"];
   const entries = [];
   for (let i = 0; i < DECK_SIZE; i++) {
@@ -530,7 +577,7 @@ function rivalDeck(rank) {
     const minRarity = i < star3 ? 3 : 1;
     const cands = HEROES.filter((h) => h.role === role && h.rarity >= minRarity);
     const hero = cands.length ? rng.pick(cands) : rng.pick(HEROES.filter((h) => h.role === role));
-    entries.push({ key: (hero || rng.pick(HEROES)).key, lb });
+    entries.push({ key: (hero || rng.pick(HEROES)).key, lb, aw: i < awakenCount });
   }
   return { name: rng.pick(RIVAL_NAMES), rank, entries };
 }
@@ -560,6 +607,8 @@ const LOOKS = {
   demon:  { body: "#8a3ab5", belly: "#b977dd", horns: true,   wings: true, weapon: "club", big: true, fang: true },
   dragon: { body: "#e8b84a", belly: "#ffe9b0", horns: true,   wings: true, tail: "dragon", big: true, fang: true },
   penguin:{ body: "#5b6b86", belly: "#f4f8ff", beak: true,    flipper: true },
+  fox:    { body: "#fff1dc", belly: "#fffaf2", ear: "cat",    tail: "fox", weapon: "staff", cheek: "#ffb98c" },
+  fairy:  { body: "#cfe9ff", belly: "#f0faff", wings: true,   crown: true, weapon: "staff", cheek: "#bfe0ff" },
 };
 
 function shade(hex, f) {
@@ -605,6 +654,22 @@ function drawCharacter(ctx, look, r, o) {
     ctx.moveTo(-r * 0.8, cy + r * 0.5);
     ctx.quadraticCurveTo(-r * 1.5, cy + r * 0.2, -r * 1.3, cy - r * 0.5 + walk * 2);
     ctx.stroke();
+  } else if (L.tail === "fox") {
+    // キツネのふさふさ尻尾（3本扇状＝九尾の意匠）
+    for (const a of [-0.55, -0.15, 0.3]) {
+      ctx.save();
+      ctx.translate(-r * 0.6, cy + r * 0.35);
+      ctx.rotate(a + walk * 0.05);
+      ctx.fillStyle = "#f5c87e";
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.7, 0, r * 0.75, r * 0.26, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.ellipse(-r * 1.2, 0, r * 0.26, r * 0.2, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
   } else if (L.tail === "dragon") {
     // ドラゴンの太いしっぽ＋先端スパイク
     ctx.fillStyle = shade(L.body, 0.85);
@@ -831,6 +896,21 @@ function drawCharacter(ctx, look, r, o) {
     ctx.beginPath();
     ctx.arc(r * 0.33, earY - r * 1.12, r * 0.12, 0, TAU);
     ctx.fill();
+  }
+
+  // 氷のティアラ
+  if (L.crown) {
+    ctx.fillStyle = "#aee3ff";
+    for (const [ox, h2] of [[-0.34, 0.3], [0, 0.46], [0.34, 0.3]]) {
+      ctx.beginPath();
+      ctx.moveTo((ox - 0.14) * r, earY + r * 0.05);
+      ctx.lineTo(ox * r, earY - r * h2);
+      ctx.lineTo((ox + 0.14) * r, earY + r * 0.05);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = "#e8f8ff";
+    ctx.fillRect(-r * 0.5, earY + r * 0.02, r, r * 0.1);
   }
 
   // 天使の輪（ふわふわ浮く）
@@ -1144,10 +1224,14 @@ class Fighter {
     this.flash = 0;
     this.moving = false;
     this.fly = !!spec.fly;
-    this.skill = spec.skill || null;        // ★3スキルID
+    this.skill = spec.skill || null;        // スキルID（★3 / 覚醒）
+    this.skillLv = spec.skillLv || 1;       // 1=通常, 2=真（覚醒した★3）
     this.hits = 0;                          // crit 用の攻撃回数
-    this.skillTimer = 0;                    // aura_heal 等の周期
+    this.skillTimer = 0;                    // aura_heal / summon 等の周期
+    this.chillT = 0;                        // ❄️ こおり状態の残り秒数
   }
+
+  get chilled() { return this.chillT > 0; }
 
   get alive() { return this.deadT < 0; }
   get feetY() { return GROUND_Y + this.yOff - (this.fly ? 46 + Math.sin(this.animT * 3) * 6 : 0); }
@@ -1173,6 +1257,7 @@ class Fighter {
   update(dt, battle) {
     this.animT += dt;
     this.flash = Math.max(0, this.flash - dt * 5);
+    this.chillT = Math.max(0, this.chillT - dt);
     if (!this.alive) {
       this.deadT += dt * 1.7;
       return;
@@ -1181,14 +1266,26 @@ class Fighter {
       this.attackAnim += dt / 0.28;
       if (this.attackAnim >= 1) this.attackAnim = -1;
     }
-    this.atkTimer -= dt;
+    // 攻撃間隔：こおり中は遅く、フィーバー中の味方は速い
+    let atkRate = this.chilled ? 0.55 : 1;
+    if (this.side === 1 && battle.feverT > 0) atkRate *= 1.5;
+    this.atkTimer -= dt * atkRate;
 
     // 「せいなるうた」：周囲の味方を周期回復するオーラ
     if (this.skill === "aura_heal") {
       this.skillTimer += dt;
-      if (this.skillTimer >= 1.6) {
+      if (this.skillTimer >= (this.skillLv >= 2 ? 1.2 : 1.6)) {
         this.skillTimer = 0;
         battle.skillHealAura(this);
+      }
+    }
+
+    // 「しきがみ召喚」：一定間隔で式神を呼び出す
+    if (this.skill === "summon") {
+      this.skillTimer += dt;
+      if (this.skillTimer >= (this.skillLv >= 2 ? 4.5 : 6)) {
+        this.skillTimer = 0;
+        battle.skillSummon(this);
       }
     }
 
@@ -1228,8 +1325,9 @@ class Fighter {
       }
     } else {
       this.moving = true;
+      const moveRate = this.chilled ? 0.45 : 1;
       this.x = clamp(
-        this.x + this.side * this.spec.speed * dt,
+        this.x + this.side * this.spec.speed * moveRate * dt,
         PLAYER_TOWER_X + 6,
         ENEMY_TOWER_X - 6
       );
@@ -1284,6 +1382,12 @@ class Battle {
     this.skillCdMax = 45;
     this.skillCd = this.arena ? 30 : 20;
 
+    // フィーバーゲージ（ぼうけん/エンドレス限定。PvPは公平性のため無し）
+    // 敵を倒すとたまり、満タンで8秒間 味方の攻撃速度＆マナ回復アップ
+    this.fever = 0;
+    this.feverT = 0;
+    this.feverCount = 0;
+
     if (this.arena) {
       // 相手将（AI）
       this.oppName = opts.oppName || "ライバル";
@@ -1310,18 +1414,19 @@ class Battle {
   }
 
   get manaMax() { return 350 + (this.manaLv - 1) * 110; }
-  get manaRegen() { return 14 + (this.manaLv - 1) * 7; }
+  get manaRegen() { return (14 + (this.manaLv - 1) * 7) * (this.feverT > 0 ? 1.5 : 1); }
   get manaUpCost() { return 70 * this.manaLv; }
   get manaUpMaxed() { return this.manaLv >= 6; }
 
   allies() { return this.fighters.filter((f) => f.side === 1 && f.alive); }
   foesOf(side) { return this.fighters.filter((f) => f.side !== side && f.alive); }
   towerOf(side) { return side === 1 ? this.enemyTower : this.playerTower; }
-  sideAlive(side) { return this.fighters.reduce((n, f) => n + (f.side === side && f.alive ? 1 : 0), 0); }
+  // 召喚上限の数え上げ。式神（minion）は枠を食わない
+  sideAlive(side) { return this.fighters.reduce((n, f) => n + (f.side === side && f.alive && !f.spec.minion ? 1 : 0), 0); }
 
   // 指定スペックを指定サイドに出撃させる（stats はスペックに焼き込み済みの前提）
-  spawnFighter(spec, side) {
-    const x = side === 1 ? PLAYER_TOWER_X + TOWER_HALF + 14 : ENEMY_TOWER_X - TOWER_HALF - 14;
+  spawnFighter(spec, side, atX = null) {
+    const x = atX !== null ? atX : side === 1 ? PLAYER_TOWER_X + TOWER_HALF + 14 : ENEMY_TOWER_X - TOWER_HALF - 14;
     const f = new Fighter(spec, side, x, { hp: 1, atk: 1 });
     this.fighters.push(f);
     this.addPoof(f.x, f.feetY - f.r, side === 1 ? "#ffe3b3" : "#caa8ff");
@@ -1418,46 +1523,79 @@ class Battle {
     return best;
   }
 
-  /* ---- スキル（★3）の補助 ---- */
-  // 「まりょくかいほう」：周囲に味方の atk オーラがあれば攻撃力UP
+  /* ---- スキルの補助（skillLv 2 = 覚醒★3 の「真」版で強化）---- */
+  // 「まりょくかいほう」：周囲に味方の atk オーラがあれば攻撃力UP（真：+40%）
   auraAtkMult(src) {
+    let bonus = 0;
     let n = 0;
     for (const a of this.fighters) {
-      if (a.side === src.side && a.alive && a.skill === "aura_atk" && Math.abs(a.x - src.x) <= 130) n++;
-    }
-    return 1 + 0.25 * Math.min(2, n);
-  }
-  // 「ふくつのまもり」：周囲に味方の guard オーラがあれば被ダメ減
-  guardMult(target) {
-    for (const a of this.fighters) {
-      if (a.side === target.side && a.alive && a.skill === "aura_guard" && a !== target && Math.abs(a.x - target.x) <= 120) {
-        return 0.78;
+      if (a.side === src.side && a.alive && a.skill === "aura_atk" && Math.abs(a.x - src.x) <= 130) {
+        bonus += a.skillLv >= 2 ? 0.4 : 0.25;
+        if (++n >= 2) break;   // 重ねがけは2体まで
       }
     }
-    return 1;
+    return 1 + Math.min(0.8, bonus);
   }
-  // 「ひっさつのいちげき」：3回に1回クリティカル。攻撃のたびにダメージを算出
+  // 「ふくつのまもり」：周囲に味方の guard オーラがあれば被ダメ減（真：-30%）
+  guardMult(target) {
+    let best = 1;
+    for (const a of this.fighters) {
+      if (a.side === target.side && a.alive && a.skill === "aura_guard" && a !== target && Math.abs(a.x - target.x) <= 120) {
+        best = Math.min(best, a.skillLv >= 2 ? 0.7 : 0.78);
+      }
+    }
+    return best;
+  }
+  // 「ひっさつのいちげき」：3回に1回クリティカル（真：2回に1回 2.6倍）
   computeAttack(src) {
     let dmg = src.atk * this.auraAtkMult(src);
     let crit = false;
     if (src.skill === "crit") {
       src.hits++;
-      if (src.hits % 3 === 0) { dmg *= 2.2; crit = true; }
+      const period = src.skillLv >= 2 ? 2 : 3;
+      if (src.hits % period === 0) { dmg *= src.skillLv >= 2 ? 2.6 : 2.2; crit = true; }
     }
     return { dmg: Math.round(dmg), crit };
   }
-  // 「せいなるうた」：周囲の味方を回復
+  // 「せいなるうた」：周囲の味方を回復（真：回復量・範囲UP）
   skillHealAura(src) {
-    const amt = Math.round(src.maxHp * 0.05 + 18);
+    const plus = src.skillLv >= 2;
+    const amt = Math.round(src.maxHp * (plus ? 0.075 : 0.05) + (plus ? 28 : 18));
+    const range = plus ? 175 : 150;
     let any = false;
     for (const a of this.fighters) {
-      if (a.side === src.side && a.alive && a.hp < a.maxHp && Math.abs(a.x - src.x) <= 150) {
+      if (a.side === src.side && a.alive && a.hp < a.maxHp && Math.abs(a.x - src.x) <= range) {
         a.hp = Math.min(a.maxHp, a.hp + amt);
         this.addHealSpark(a.x, a.feetY - a.r);
         any = true;
       }
     }
     if (any) this.addPopup(src.x, src.feetY - src.r * 2.6, "🎵", "#7ce7a2");
+  }
+  // 「しきがみ召喚」：小さな式神を呼び出す（同時に3体まで）
+  skillSummon(src) {
+    const mine = this.fighters.filter((f) => f.alive && f.ownerRef === src).length;
+    if (mine > 2 || this.fighters.length > 70) return;
+    const plus = src.skillLv >= 2;
+    const spec = {
+      key: "shiki", name: "しきがみ", look: "slime", skin: { body: "#ffd6f2" },
+      r: 13, minion: true, bounty: 6,
+      hp: Math.round(src.maxHp * (plus ? 0.4 : 0.32)),
+      atk: Math.round(src.atk * (plus ? 0.55 : 0.45)),
+      range: 24, interval: 0.9, speed: 62, cost: 0, cd: 0,
+    };
+    const f = this.spawnFighter(spec, src.side, src.x + src.side * 26);
+    f.ownerRef = src;
+    this.addPopup(src.x, src.feetY - src.r * 2.6, "🦊", "#ffd6f2");
+  }
+  // 「こおりのいき」：敵をこおらせて鈍くする（真：効果時間UP）
+  applyChill(target, skillLv) {
+    if (target.isTower || !target.alive) return;
+    target.chillT = Math.max(target.chillT, skillLv >= 2 ? 2.8 : 1.8);
+    this.addPopup(target.x, target.feetY - target.r * 2.1, "❄", "#aee3ff");
+    for (let i = 0; i < 3; i++) {
+      this.addParticle({ x: target.x + rand(-12, 12), y: target.feetY - target.r - rand(0, 14), vx: rand(-20, 20), vy: rand(-50, -20), r: rand(2, 4), t: 0, life: 0.6, color: "#cfe9ff", fade: true });
+    }
   }
 
   /* ---- ダメージ処理 ---- */
@@ -1474,22 +1612,24 @@ class Battle {
     }
   }
 
-  // 通常の近接攻撃（クリティカル／「りゅうせんぷう」範囲化を反映）
+  // 通常の近接攻撃（クリティカル／「りゅうせんぷう」範囲化／こおり付与を反映）
   attackMelee(src, target) {
     const { dmg, crit } = this.computeAttack(src);
     if (crit) this.addPopup(target.isTower ? target.x : target.x, (target.isTower ? GROUND_Y - 200 : target.feetY - target.r * 2.8), "クリティカル!", "#ffd54a");
     if (src.skill === "splash") {
-      // 対象を中心に小範囲へ
+      // 対象を中心に小範囲へ（真：範囲拡大）
       const cx = target.x;
+      const radius = src.skillLv >= 2 ? 80 : 52;
       for (const e of this.foesOf(src.side)) {
-        if (Math.abs(e.x - cx) <= 52 + e.halfW) e.takeDamage(dmg, this, src.spec.knock || 0);
+        if (Math.abs(e.x - cx) <= radius + e.halfW) e.takeDamage(dmg, this, src.spec.knock || 0);
       }
       const tw = this.towerOf(src.side);
-      if (!target.isTower && Math.abs(tw.x - cx) <= 52 + tw.halfW) this.dealDamage(src, tw, dmg);
+      if (!target.isTower && Math.abs(tw.x - cx) <= radius + tw.halfW) this.dealDamage(src, tw, dmg);
       else if (target.isTower) this.dealDamage(src, tw, dmg);
       this.addPoof(cx, GROUND_Y - 20, "#ffd54a");
     } else {
       this.dealDamage(src, target, dmg, src.spec.knock || 0);
+      if (src.skill === "freeze") this.applyChill(target, src.skillLv);
     }
   }
 
@@ -1515,23 +1655,26 @@ class Battle {
     const y = src.feetY - src.r * 1.2;
     const { dmg } = this.computeAttack(src);
     this.projectiles.push({
-      kind: src.spec.proj, side: src.side,
+      kind: src.skill === "freeze" ? "ice" : src.spec.proj, side: src.side,
       x: src.x + src.side * src.r, y,
       target, lastX: target.x, lastY: target.isTower ? GROUND_Y - 90 : target.feetY - target.r,
       speed: 430, dmg, aoe: src.spec.aoe || 0, trail: 0,
+      srcSkill: src.skill, srcSkillLv: src.skillLv,
     });
   }
 
   onDeath(f) {
     this.addPoof(f.x, f.feetY - f.r, f.side === 1 ? "#ffe3b3" : "#caa8ff");
-    // 「じばく」：たおれる時に周囲へ大ダメージ
+    // 「じばく」：たおれる時に周囲へ大ダメージ（真：威力・範囲UP）
     if (f.skill === "explode") {
-      const dmg = Math.round(f.maxHp * 0.12 + f.atk * 1.4);
+      const plus = f.skillLv >= 2;
+      const dmg = Math.round((f.maxHp * 0.12 + f.atk * 1.4) * (plus ? 1.5 : 1));
+      const radius = plus ? 120 : 95;
       for (const e of this.foesOf(f.side)) {
-        if (Math.abs(e.x - f.x) <= 95 + e.halfW) e.takeDamage(dmg, this, 16);
+        if (Math.abs(e.x - f.x) <= radius + e.halfW) e.takeDamage(dmg, this, 16);
       }
       const tw = this.towerOf(f.side);
-      if (Math.abs(tw.x - f.x) <= 95 + tw.halfW) this.dealDamage(f, tw, dmg);
+      if (Math.abs(tw.x - f.x) <= radius + tw.halfW) this.dealDamage(f, tw, dmg);
       this.shake = Math.max(this.shake, 6);
       SFX.meteor();
       for (let i = 0; i < 12; i++) {
@@ -1542,6 +1685,18 @@ class Battle {
       this.kills++;
       this.mana = Math.min(this.manaMax, this.mana + (f.spec.bounty || 0));
       this.addPopup(f.x, f.feetY - f.r * 2.8, `+${f.spec.bounty}マナ`, "#7ce7ff");
+      // フィーバーゲージ：撃破でチャージ、満タンで発動
+      if (this.feverT <= 0 && !this.over) {
+        this.fever += 9;
+        if (this.fever >= 100) {
+          this.fever = 0;
+          this.feverT = 8;
+          this.feverCount++;
+          this.addPopup(WORLD_W * 0.5, GROUND_Y - 240, "フィーバー!!", "#ffd54a");
+          this.addConfetti(clamp(f.x, 300, WORLD_W - 300), GROUND_Y - 100);
+          SFX.victory();
+        }
+      }
     } else if (f.side === -1 && this.arena) {
       this.kills++;
     }
@@ -1669,6 +1824,15 @@ class Battle {
     if (!this.over) {
       this.mana = Math.min(this.manaMax, this.mana + this.manaRegen * dt);
       this.skillCd = Math.max(0, this.skillCd - dt);
+      this.feverT = Math.max(0, this.feverT - dt);
+      // フィーバー中はにぎやかな金の星を散らす
+      if (this.feverT > 0 && (this.time * 10 | 0) % 2 === 0) {
+        const al = this.allies();
+        if (al.length) {
+          const f = pick(al);
+          this.addParticle({ x: f.x + rand(-12, 12), y: f.feetY - f.r * 2 - rand(0, 20), vx: rand(-20, 20), vy: rand(-70, -30), r: rand(2, 4), t: 0, life: 0.7, color: pick(["#ffd54a", "#fff3b0", "#7ce7ff"]), fade: true });
+        }
+      }
       for (let i = 0; i < this.cardCd.length; i++) this.cardCd[i] = Math.max(0, this.cardCd[i] - dt);
       this.updateSpawns(dt);
       if (this.enemyCmd) this.enemyCmd.update(dt);
@@ -1718,13 +1882,17 @@ class Battle {
         const live = p.target && (p.target.isTower ? p.target.hp > 0 : p.target.alive);
         if (p.aoe) {
           for (const e of this.foesOf(p.side)) {
-            if (Math.abs(e.x - tx) <= p.aoe + e.halfW) e.takeDamage(p.dmg, this);
+            if (Math.abs(e.x - tx) <= p.aoe + e.halfW) {
+              e.takeDamage(p.dmg, this);
+              if (p.srcSkill === "freeze") this.applyChill(e, p.srcSkillLv || 1);
+            }
           }
           const tower = this.towerOf(p.side);
           if (Math.abs(tower.x - tx) <= p.aoe + tower.halfW) this.dealDamage(null, tower, p.dmg);
-          this.addPoof(tx, ty, p.kind === "hex" ? "#caa8ff" : "#ffd54a");
+          this.addPoof(tx, ty, p.kind === "ice" ? "#aee3ff" : p.kind === "hex" ? "#caa8ff" : "#ffd54a");
         } else if (live) {
           this.dealDamage(null, p.target, p.dmg);
+          if (p.srcSkill === "freeze") this.applyChill(p.target, p.srcSkillLv || 1);
           if (!p.target.isTower) SFX.hit();
         }
       } else {
@@ -2068,7 +2236,7 @@ function drawFighter(ctx, f) {
     fly: f.fly,
     skin: f.spec.skin || null,
   });
-  // ★3スキル持ちは足元にきらめくリング
+  // スキル持ち（★3・覚醒）は足元にきらめくリング。真スキルは二重に
   if (f.alive && f.skill) {
     ctx.globalAlpha = 0.5 + 0.3 * Math.sin(f.animT * 4);
     ctx.strokeStyle = f.side === 1 ? "#ffd54a" : "#ff9d5c";
@@ -2076,6 +2244,20 @@ function drawFighter(ctx, f) {
     ctx.beginPath();
     ctx.ellipse(0, 1, f.r * 1.1, f.r * 0.34, 0, 0, TAU);
     ctx.stroke();
+    if (f.skillLv >= 2) {
+      ctx.beginPath();
+      ctx.ellipse(0, 1, f.r * 1.35, f.r * 0.42, 0, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // ❄️ こおり中は青いベール
+  if (f.alive && f.chilled) {
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = "#aee3ff";
+    ctx.beginPath();
+    ctx.ellipse(0, -f.r, f.r * 1.2, f.r * 1.25, 0, 0, TAU);
+    ctx.fill();
     ctx.globalAlpha = 1;
   }
   ctx.restore();
@@ -2136,7 +2318,7 @@ function drawProjectile(ctx, p) {
     ctx.fill();
   } else {
     // 魔法弾（orb / hex）
-    const col = p.kind === "hex" ? "#caa8ff" : "#ffd54a";
+    const col = p.kind === "ice" ? "#aee3ff" : p.kind === "hex" ? "#caa8ff" : "#ffd54a";
     ctx.translate(p.x, p.y);
     ctx.globalAlpha = 0.4;
     ctx.fillStyle = col;
@@ -2218,6 +2400,22 @@ function renderBattle(battle, t) {
     fctx.strokeText(label, viewW / 2, 44);
     fctx.fillStyle = "#fff";
     fctx.fillText(label, viewW / 2, 44);
+  }
+
+  // フィーバー中のバナー
+  if (battle.feverT > 0) {
+    const pulse = 1 + Math.sin(t * 10) * 0.06;
+    fctx.save();
+    fctx.translate(viewW / 2, 80);
+    fctx.scale(pulse, pulse);
+    fctx.font = "bold 34px sans-serif";
+    fctx.textAlign = "center";
+    fctx.lineWidth = 6;
+    fctx.strokeStyle = "rgba(120, 60, 0, 0.85)";
+    fctx.strokeText("🔥 フィーバー!!", 0, 0);
+    fctx.fillStyle = `hsl(${(t * 240) % 360}, 95%, 65%)`;
+    fctx.fillText("🔥 フィーバー!!", 0, 0);
+    fctx.restore();
   }
 
   // アリーナ：残り時間バー＋相手名＋相手マナ
@@ -2375,6 +2573,11 @@ function buildCards() {
 function updateHud() {
   const b = game.battle;
   if (!b) return;
+  // フィーバーゲージ（アリーナでは非表示）
+  $("fever-bar").style.display = b.arena ? "none" : "block";
+  const ff = $("fever-fill");
+  ff.classList.toggle("active", b.feverT > 0);
+  if (b.feverT <= 0) ff.style.width = `${clamp(b.fever, 0, 100)}%`;
   $("mana-fill").style.width = `${(b.mana / b.manaMax) * 100}%`;
   $("mana-text").textContent = `${Math.floor(b.mana)} / ${b.manaMax}  (Lv${b.manaLv})`;
   const up = $("mana-up");
@@ -2442,11 +2645,12 @@ function buildStageGrid() {
   $("gold-label").textContent = save.gold;
 }
 
-/* ---- 強化（ゴールドで所持ヒーローをレベルアップ。campaign に反映）---- */
+/* ---- 強化（ゴールドでレベルアップ／覚醒石で覚醒。campaign に反映）---- */
 function buildUpgradeList() {
   const list = $("upgrade-list");
   list.innerHTML = "";
   $("upgrade-gold-label").textContent = save.gold;
+  $("upgrade-shards-label").textContent = save.shards;
   // 所持ヒーロー（デッキ入り→レア度順）＋未解放の基本ヒーロー（ティザー表示）
   const rows = [...HEROES].filter((h) => isHeroOwned(h.key) || h.base);
   rows.sort((a, b) => {
@@ -2459,20 +2663,28 @@ function buildUpgradeList() {
     const lv = unitLevel(h.key);
     const cost = upgradeCost(h.key);
     const maxed = lv >= MAX_UNIT_LV;
-    const sp = heroSpec(h.key, heroLb(h.key));
+    const awakened = isAwakened(h.key);
+    const sp = heroSpec(h.key, heroLb(h.key), awakened);
     const m = unitStatMult(h.key);
     const inDeck = save.deck.includes(h.key);
+    // スキル表示：覚醒で習得した／真になったスキルも見せる
+    const skillLabel = sp.skill
+      ? `　${SKILLS[sp.skill].icon}${sp.skillLv >= 2 ? "真・" : ""}${SKILLS[sp.skill].name}`
+      : "";
     const row = document.createElement("div");
-    row.className = "up-row";
+    row.className = "up-row" + (awakened ? " awakened" : "");
     if (locked) row.style.opacity = "0.55";
     row.innerHTML = `
       <canvas></canvas>
       <div class="up-info">
-        <div class="nm">${locked ? "？？？" : h.name} <small>${locked ? "" : `Lv${lv}${inDeck ? "・デッキ" : ""}`}</small></div>
-        <div class="desc">${locked ? `ステージ${h.unlock}をクリアすると仲間になる` : `${starHtml(h.rarity)} ${ROLE_DESC[h.role]}${h.skill ? `　${SKILLS[h.skill].icon}${SKILLS[h.skill].name}` : ""}`}</div>
+        <div class="nm">${awakened ? "✨" : ""}${locked ? "？？？" : h.name} <small>${locked ? "" : `Lv${lv}${inDeck ? "・デッキ" : ""}`}</small></div>
+        <div class="desc">${locked ? `ステージ${h.unlock}をクリアすると仲間になる` : `${starHtml(h.rarity)} ${ROLE_DESC[h.role]}${skillLabel}`}</div>
         <div class="st">${locked ? "" : `HP ${Math.round(sp.hp * m)} ／ こうげき ${Math.round((sp.heal || sp.atk) * m)}${sp.heal ? "(回復)" : ""}`}</div>
       </div>
-      <button class="up-btn">${locked ? "🔒" : maxed ? "MAX" : `🪙 ${cost}`}</button>`;
+      <div class="up-btns">
+        <button class="up-btn">${locked ? "🔒" : maxed ? "MAX" : `🪙 ${cost}`}</button>
+        ${locked || awakened ? "" : `<button class="awaken-btn">${lv >= AWAKEN_LV ? `💠${awakenCost(h.key)} 覚醒` : `Lv${AWAKEN_LV}で覚醒`}</button>`}
+      </div>`;
     const btn = row.querySelector(".up-btn");
     btn.disabled = locked || maxed || save.gold < cost;
     btn.addEventListener("click", () => {
@@ -2483,6 +2695,19 @@ function buildUpgradeList() {
       SFX.manaUp();
       buildUpgradeList();
     });
+    const awBtn = row.querySelector(".awaken-btn");
+    if (awBtn) {
+      awBtn.disabled = !canAwaken(h.key);
+      awBtn.addEventListener("click", () => {
+        if (!awakenHero(h.key)) return;
+        SFX.victory();
+        const newSp = heroSpec(h.key, heroLb(h.key), true);
+        toast(h.skill
+          ? `✨ ${h.name} のスキルが「真・${SKILLS[newSp.skill].name}」に進化！`
+          : `✨ ${h.name} が覚醒！「${SKILLS[newSp.skill].name}」を習得！`);
+        buildUpgradeList();
+      });
+    }
     list.appendChild(row);
     if (locked) row.querySelector("canvas").style.filter = "grayscale(1) brightness(0.4)";
     paintIcon(row.querySelector("canvas"), h.look, lookRadius(h.look), h.skin || null);
@@ -2554,10 +2779,14 @@ function finishBattle() {
     gold = Math.min(500, b.kills * 2 + Math.floor(b.time));
     const isBest = b.time > save.bestEndless.time;
     if (isBest) save.bestEndless = { time: Math.floor(b.time), kills: b.kills };
+    // 1分生存ごとに覚醒石（最大5個）
+    const shards = Math.min(5, Math.floor(b.time / 60));
+    gainShards(shards);
     $("result-title").textContent = "ここまで守り抜いた！";
     $("result-stars").textContent = isBest ? "🏆 ベスト更新！" : "";
     $("result-detail").innerHTML =
-      `${statsLine}<br />ベスト：⏱ ${fmtTime(save.bestEndless.time)} ／ 💀 ${save.bestEndless.kills}たい<br />かくとく：🪙 ${gold} G`;
+      `${statsLine}<br />ベスト：⏱ ${fmtTime(save.bestEndless.time)} ／ 💀 ${save.bestEndless.kills}たい` +
+      `<br />かくとく：🪙 ${gold} G${shards > 0 ? `　💠 覚醒石 ×${shards}` : ""}`;
     $("result-next-btn").style.display = "none";
   } else if (b.over.win) {
     const ratio = b.playerTower.hp / b.playerTower.maxHp;
@@ -2565,7 +2794,14 @@ function finishBattle() {
     gold = stageReward(n);
     const firstClear = !(save.stars[n] > 0);
     if (firstClear) gold *= 2;
-    save.stars[n] = Math.max(save.stars[n] || 0, stars);
+    // ★3初達成で覚醒石
+    const prevStars = save.stars[n] || 0;
+    let shardMsg = "";
+    if (stars >= 3 && prevStars < 3) {
+      gainShards(1);
+      shardMsg = "<br />💠 覚醒石 ×1（★3初達成！）";
+    }
+    save.stars[n] = Math.max(prevStars, stars);
 
     // このクリアで新ユニットやモードが解放されたか
     const nowCleared = clearedCount();
@@ -2583,7 +2819,7 @@ function finishBattle() {
     $("result-stars").textContent = "★".repeat(stars) + "☆".repeat(3 - stars);
     $("result-detail").innerHTML =
       `とりでの残り体力 ${Math.ceil(ratio * 100)}%<br />${statsLine}<br />` +
-      `かくとく：🪙 ${gold} G${firstClear ? "（初クリア×2！）" : ""}${unlockMsg}`;
+      `かくとく：🪙 ${gold} G${firstClear ? "（初クリア×2！）" : ""}${shardMsg}${unlockMsg}`;
     $("result-next-btn").style.display = n < STAGE_COUNT ? "block" : "none";
   } else {
     gold = 15;
@@ -2635,6 +2871,8 @@ const ACHIEVEMENTS = [
   { icon: "⚒️", name: "きたえあげる",       desc: "ユニットをLv5にする",          test: () => Object.values(save.unitLv).some((l) => l >= 5) },
   { icon: "🏃", name: "サバイバー",         desc: "エンドレスで3分間生きのびる",  test: () => save.bestEndless.time >= 180 },
   { icon: "💀", name: "せんりゃくハンター", desc: "つうさん500たい撃破する",      test: () => save.totalKills >= 500 },
+  { icon: "✨", name: "めざめのとき",       desc: "だれかを覚醒させる",            test: () => Object.keys(save.awakened).length > 0 },
+  { icon: "🎖", name: "レジェンド",         desc: "アリーナで最高ランク帯に到達", test: () => save.arena.rank >= 22 },
 ];
 
 function buildAchvList() {
@@ -2704,28 +2942,38 @@ function finishArena(b, statsLine) {
   const er = Math.ceil((b.enemyTower.hp / b.enemyTower.maxHp) * 100);
 
   let rankMsg = "";
+  let tierBonus = 0;
   if (opp.ranked) {
     const before = save.arena.rank;
     if (win) {
       save.arena.wins++;
       save.arena.pts += rankDelta(true, before, opp.rank);
       while (save.arena.pts >= 10) { save.arena.pts -= 10; save.arena.rank++; }
+      // 称号ランク（ティア）が上がったらジェムボーナス
+      if (rankTier(save.arena.rank) !== rankTier(before)) {
+        tierBonus = 10;
+        rankMsg = `🎖 ${rankLabel(save.arena.rank)} に昇格！（🔮+${tierBonus}）`;
+      }
     } else {
       save.arena.losses++;
       save.arena.pts += rankDelta(false, before, opp.rank);
       while (save.arena.pts < 0 && save.arena.rank > 1) { save.arena.pts += 10; save.arena.rank--; }
       if (save.arena.pts < 0) save.arena.pts = 0;
     }
-    rankMsg = before !== save.arena.rank
-      ? `ランク ${before !== save.arena.rank && save.arena.rank > before ? "▲" : "▼"} ${rankLabel(save.arena.rank)}`
-      : `ランクポイント ${save.arena.pts}/10（${rankLabel(save.arena.rank)}）`;
+    if (!rankMsg) {
+      rankMsg = before !== save.arena.rank
+        ? `ランク ${save.arena.rank > before ? "▲" : "▼"} ${rankLabel(save.arena.rank)}`
+        : `ランクポイント ${save.arena.pts}/10（${rankLabel(save.arena.rank)}）`;
+    }
   } else {
     if (win) save.arena.wins++; else save.arena.losses++;
   }
 
-  const gems = win ? 6 + Math.floor(save.arena.rank / 2) : 2;
+  const gems = (win ? 6 + Math.floor(save.arena.rank / 2) : 2) + tierBonus;
   const gold = win ? 70 : 20;
+  const shards = win ? 1 : 0;   // 勝利で覚醒石
   save.gems += gems; save.gold += gold;
+  gainShards(shards);
   persist();
 
   $("result-title").textContent = win ? "しょうり！ 🎉" : "はいぼく…";
@@ -2734,7 +2982,7 @@ function finishArena(b, statsLine) {
     `vs 👹 ${opp.name}（${rankLabel(opp.rank)}）<br />` +
     `じぶんのとりで ${pr}％ ／ あいて ${er}％<br />${statsLine}<br />` +
     (rankMsg ? `${rankMsg}<br />` : "") +
-    `かくとく：🔮 ${gems}　🪙 ${gold}`;
+    `かくとく：🔮 ${gems}　🪙 ${gold}${shards ? `　💠 ${shards}` : ""}`;
   $("result-next-btn").style.display = "none";
   $("result-retry-btn").style.display = "block";
   $("result-retry-btn").textContent = "もういちど";
@@ -2809,14 +3057,16 @@ function openCollection(from) {
     const owned = isHeroOwned(h.key);
     const inDeck = save.deck.includes(h.key);
     const lb = heroLb(h.key);
+    const aw = isAwakened(h.key);
+    const sp = owned ? heroSpec(h.key, lb, aw) : null;
     const cell = document.createElement("button");
     cell.className = "hero-cell rar" + h.rarity + (owned ? "" : " locked") + (inDeck ? " indeck" : "");
     cell.innerHTML = `
-      <div class="hc-star">${owned ? starHtml(h.rarity) : "🔒"}</div>
+      <div class="hc-star">${owned ? (aw ? "✨" : "") + starHtml(h.rarity) : "🔒"}</div>
       <canvas></canvas>
       <div class="hc-name">${owned ? h.name : "？？？"}</div>
-      <div class="hc-meta">${owned ? `⚔${heroPower(h.key, lb)}${lb ? ` +${lb}` : ""}` : h.base ? `ステージ${h.unlock}で解放` : `${RARITY[h.rarity].name}`}</div>
-      ${owned && h.skill ? `<div class="hc-skill">${SKILLS[h.skill].icon}</div>` : ""}
+      <div class="hc-meta">${owned ? `⚔${heroPower(h.key, lb, aw)}${lb ? ` +${lb}` : ""}` : h.base ? `ステージ${h.unlock}で解放` : `${RARITY[h.rarity].name}`}</div>
+      ${owned && sp.skill ? `<div class="hc-skill">${SKILLS[sp.skill].icon}</div>` : ""}
       ${inDeck ? '<div class="hc-in">✓</div>' : ""}`;
     if (owned) {
       cell.addEventListener("click", () => {
@@ -2867,7 +3117,7 @@ function openArena() {
   $("name-input").value = save.playerName || "";
   $("arena-mycode").value = buildShareCode();
   renderDeckStrip("arena-deck");
-  $("arena-deck-power").textContent = save.deck.reduce((s, k) => s + heroPower(k, heroLb(k)), 0);
+  $("arena-deck-power").textContent = save.deck.reduce((s, k) => s + heroPower(k, heroLb(k), isAwakened(k)), 0);
   showScreen("arena-screen");
 }
 

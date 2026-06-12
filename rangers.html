@@ -64,6 +64,22 @@
       border-top: 3px solid var(--panel-3);
       z-index: 6;
     }
+    #fever-bar {
+      height: 7px; border-radius: 4px; overflow: hidden;
+      background: #1c1238; border: 1px solid var(--panel-3);
+    }
+    #fever-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #ff6f3c, #ffd54a, #7ce7a2);
+      transition: width 150ms;
+    }
+    #fever-fill.active {
+      width: 100% !important;
+      background: linear-gradient(90deg, #ff5c8a, #ffd54a, #7ce7ff, #ff5c8a);
+      background-size: 200% 100%;
+      animation: feverFlow 0.8s linear infinite;
+    }
+    @keyframes feverFlow { to { background-position: 200% 0; } }
     #mana-row { display: flex; align-items: center; gap: 8px; }
     #mana-bar {
       flex: 1; height: 22px; border-radius: 11px;
@@ -222,6 +238,16 @@
     }
     .up-btn:disabled { filter: grayscale(0.8) brightness(0.7); }
     .up-btn:not(:disabled):active { transform: scale(0.95); }
+    .up-btns { display: flex; flex-direction: column; gap: 5px; }
+    .awaken-btn {
+      flex: none; padding: 6px 10px; border-radius: 10px;
+      background: linear-gradient(180deg, #b277ff, #7a3fd6);
+      color: #fff; font-weight: 900; font-size: 11px;
+      border: 2px solid #d9b8ff; min-width: 86px; text-align: center;
+    }
+    .awaken-btn:disabled { filter: grayscale(0.8) brightness(0.6); }
+    .awaken-btn:not(:disabled):active { transform: scale(0.95); }
+    .up-row.awakened { border-color: #b277ff; box-shadow: 0 0 10px rgba(178, 119, 255, 0.35); }
 
     /* ===== 実績 ===== */
     #achv-summary { color: var(--muted); font-size: 12px; margin-bottom: 12px; text-align: center; line-height: 1.7; }
@@ -457,7 +483,8 @@
       <!-- 強化 -->
       <section class="screen" id="upgrade-screen">
         <h2>⚒️ 部隊の強化</h2>
-        <div class="gold-chip">🪙 <span id="upgrade-gold-label">0</span> G</div>
+        <div class="gold-chip">🪙 <span id="upgrade-gold-label">0</span> G ／ 💠 <span id="upgrade-shards-label">0</span></div>
+        <p class="subtitle" style="margin:0 0 10px">💠覚醒石は ステージ★3初達成・アリーナ勝利・エンドレス生存 でもらえる。<br />Lv8のヒーローを<b>覚醒</b>させるとスキルを習得（★3は「真」スキルに進化）！</p>
         <div id="upgrade-list"></div>
         <button class="big-btn secondary" id="upgrade-back-btn">もどる</button>
       </section>
@@ -570,6 +597,7 @@
 
     <!-- 戦闘HUD -->
     <div id="hud">
+      <div id="fever-bar"><div id="fever-fill"></div></div>
       <div id="mana-row">
         <div id="mana-bar">
           <div id="mana-fill"></div>
