@@ -365,6 +365,34 @@ function simulateArenaCommanders(playerDeck, oppDeck, seed) {
   check("ガチャヒーローを campaign で召喚できる", ok && f && f.spec.key === "drao" && f.skill === "splash");
 }
 
+/* 17b) 新規プレイヤーの実体験：基本3体(みけ・うさ・ぽち)Lv1 でステージ1〜2を勝てる */
+function simulateNewbie(stage, deck) {
+  save.stars = {}; for (let i = 1; i < stage; i++) save.stars[i] = 1;
+  save.heroes = {}; save.unitLv = {};
+  save.deck = deck.slice();
+  const b = new Battle(stage, {});
+  const dt = 1 / 30; let el = 0;
+  const order = [2, 3, 5, 4, 1, 0];
+  while (el < 200) {
+    const danger = b.fighters.some((f) => f.side === -1 && f.alive && f.x < 620);
+    const front = b.fighters.filter((f) => f.side === 1 && f.alive).length >= 2;
+    if (b.manaLv < 4 && !danger && front && b.mana >= b.manaUpCost) b.upgradeMana();
+    else for (let i = 0; i < b.roster.length; i++) b.summon(i);
+    if (b.skillCd <= 0) b.fireSkill();
+    b.update(dt); el += dt;
+    if (b.over && b.over.t > 0.1) break;
+  }
+  return b;
+}
+{
+  const b1 = simulateNewbie(1, ["mike", "usa", "pochi"]);
+  check("新規(基本3体Lv1)でステージ1を勝てる", !!(b1.over && b1.over.win),
+    b1.over ? `${b1.over.win ? "勝利" : "敗北"} (${b1.time.toFixed(0)}秒)` : "時間切れ");
+  const b2 = simulateNewbie(2, ["mike", "usa", "pochi"]);
+  check("新規(基本3体Lv1)でステージ2を勝てる", !!(b2.over && b2.over.win),
+    b2.over ? `${b2.over.win ? "勝利" : "敗北"} (${b2.time.toFixed(0)}秒)` : "時間切れ");
+}
+
 /* 18) 未解放の基本ヒーローはデッキに入らない（進行ゲートの維持） */
 {
   save.stars = {};                             // 何もクリアしていない

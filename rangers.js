@@ -2315,7 +2315,7 @@ const game = {
   resultStage: 1,
   tutorial: null,       // チュートリアル表示中のステップ番号
   arenaOpp: null,       // 直近の対戦相手情報（リトライ用）
-  collectionPick: null, // コレクションで選択中のデッキ枠（null=非選択）
+  collectionFrom: "title", // コレクション画面の戻り先（title / arena）
 };
 
 /* ---- ミニキャラアイコンをカードに描く ---- */
@@ -2796,7 +2796,8 @@ function showGachaResults(results) {
 }
 
 /* ---- コレクション（デッキ編成）---- */
-function openCollection() {
+function openCollection(from) {
+  if (from) game.collectionFrom = from;
   ensureDeck();
   $("collection-gems").textContent = save.gems;
   renderDeckStrip();
@@ -2866,7 +2867,7 @@ function openArena() {
   $("name-input").value = save.playerName || "";
   $("arena-mycode").value = buildShareCode();
   renderDeckStrip("arena-deck");
-  $("arena-deck-power").textContent = myDeckSpecs().reduce((s, sp) => s + heroPower(sp.key, 0), 0);
+  $("arena-deck-power").textContent = save.deck.reduce((s, k) => s + heroPower(k, heroLb(k)), 0);
   showScreen("arena-screen");
 }
 
@@ -2943,10 +2944,14 @@ function wireUi() {
 
   // --- ガチャ / コレクション / アリーナ 入口 ---
   tap("gacha-btn", () => { save.gachaSeen = true; persist(); openGacha(); });
-  tap("collection-btn", () => openCollection());
+  tap("collection-btn", () => openCollection("title"));
+  tap("collection-btn-2", () => openCollection("arena"));
   tap("arena-btn", () => openArena());
   tap("gacha-back-btn", () => showScreen("title-screen"));
-  tap("collection-back-btn", () => showScreen("title-screen"));
+  tap("collection-back-btn", () => {
+    if (game.collectionFrom === "arena") openArena();
+    else showScreen("title-screen");
+  });
   tap("arena-back-btn", () => showScreen("title-screen"));
   tap("gacha-roll1", () => doRoll(1));
   tap("gacha-roll10", () => doRoll(10));
