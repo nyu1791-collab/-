@@ -565,6 +565,45 @@ console.log("\n--- 覚醒 / 新スキル / フィーバー ---");
 }
 
 /* ============================================================
+ * バランス / スキルの実効性
+ * ============================================================ */
+console.log("\n--- バランス / スキル実効性 ---");
+
+/* 29) ステージ難易度が単調増加（壁や逆転がない）。公開APIの Battle 経由で検証 */
+{
+  let towerMono = true, multMono = true, prevHp = 0, prevMult = 0, detail = "";
+  for (let n = 1; n <= STAGE_COUNT; n++) {
+    const b = new Battle(n, {});
+    if (b.enemyTower.maxHp <= prevHp) { towerMono = false; detail = `st${n}:HP ${b.enemyTower.maxHp} ≤ ${prevHp}`; }
+    if (b.enemyMult() <= prevMult) { multMono = false; }
+    prevHp = b.enemyTower.maxHp; prevMult = b.enemyMult();
+  }
+  check("ステージのとりでHPが単調増加（難易度の逆転なし）", towerMono, detail || `最終HP ${prevHp}`);
+  check("ステージの敵ステータス倍率が単調増加", multMono, `最終倍率 ${prevMult.toFixed(2)}`);
+}
+
+/* 30) 「りゅうせんぷう」(splash) が射撃ユニットでも範囲化する。
+ *     覚醒アーチャーの矢「1本」が密集した3体すべてに当たることを確認する。
+ *     以前は範囲化処理が attackMelee（近接）パスにしか無く、proj/aoeMelee 持ちでは不発だった。 */
+function splashArrowHits(awake) {
+  const b = new Battle(0, { arena: true, seed: 4, playerSpecs: [], oppSpecs: [], oppName: "x" });
+  const archer = b.spawnFighter(T.heroSpec("usa", 0, awake), 1, 400);
+  const slimes = [600, 612, 624].map((x) => {            // 範囲(52)内に密集した倒れない的
+    const e = b.spawnFighter(T.ENEMIES.slime, -1, x); e.maxHp = 99999; e.hp = 99999; return e;
+  });
+  b.addProjectile(archer, slimes[0]);                    // 矢を1本だけ放つ
+  archer.atkTimer = 999;                                 // 以降は自動で撃たせない（1射に限定）
+  for (let i = 0; i < 90 && b.projectiles.length; i++) b.update(1 / 30);  // 着弾するまで
+  return slimes.filter((e) => e.hp < 99999).length;
+}
+{
+  const plain = splashArrowHits(false);
+  const splash = splashArrowHits(true);
+  check("覚醒アーチャーの矢1本が「りゅうせんぷう」で範囲化する", splash >= 2 && plain === 1,
+    `素=${plain}体 / 覚醒=${splash}体（密集3体中）にダメージ`);
+}
+
+/* ============================================================
  * UI 画面遷移：開く操作で必ずその画面が表示される
  *   「図鑑が開かない／ガチャキャラを編成できない」不具合の再発防止。
  *   ヘッドレスでは showScreen をスパイし、open系が正しい画面を出すか検証する。

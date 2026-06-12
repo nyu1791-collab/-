@@ -1635,7 +1635,9 @@ class Battle {
 
   meleeAoe(src) {
     const { dmg } = this.computeAttack(src);
-    const hitR = src.spec.range + src.halfW + 30;
+    // 覚醒した「りゅうせんぷう」(splash) 持ち（真）は薙ぎ払いがさらに広がる
+    let hitR = src.spec.range + src.halfW + 30;
+    if (src.skill === "splash" && src.skillLv >= 2) hitR += 40;
     let any = false;
     for (const e of this.foesOf(src.side)) {
       if ((e.x - src.x) * src.side > -10 && Math.abs(e.x - src.x) <= hitR + e.halfW) {
@@ -1654,11 +1656,14 @@ class Battle {
   addProjectile(src, target) {
     const y = src.feetY - src.r * 1.2;
     const { dmg } = this.computeAttack(src);
+    // 「りゅうせんぷう」(splash) を持つ射撃ユニットは着弾点で範囲化する（真：範囲拡大）。
+    // 覚醒アーチャーなどは proj パスを通るため、ここで範囲を持たせないと不発になる。
+    const splashAoe = src.skill === "splash" ? (src.skillLv >= 2 ? 80 : 52) : 0;
     this.projectiles.push({
       kind: src.skill === "freeze" ? "ice" : src.spec.proj, side: src.side,
       x: src.x + src.side * src.r, y,
       target, lastX: target.x, lastY: target.isTower ? GROUND_Y - 90 : target.feetY - target.r,
-      speed: 430, dmg, aoe: src.spec.aoe || 0, trail: 0,
+      speed: 430, dmg, aoe: src.spec.aoe || splashAoe, trail: 0,
       srcSkill: src.skill, srcSkillLv: src.skillLv,
     });
   }
